@@ -1,7 +1,7 @@
 #include "ui_common.h"
 #include "../../include/config.h"
 #include <cstdio>   // BUG DITEMUKAN & DIPERBAIKI LEWAT COMPILE AKTUAL: snprintf() dipakai di bawah tanpa include ini
-#include "../github_ota.h"  // GithubOtaManager -- tombol "Check for Update" menggantikan baris IP Address (lihat catatan create_update_row())
+#include "../../include/github_ota.h"  // GithubOtaManager -- tombol "Check for Update" menggantikan baris IP Address (lihat catatan create_update_row())
 
 // ============================================================
 // SETTINGS SCREEN -- SENGAJA HANYA 2 parameter: Tolerance & Max

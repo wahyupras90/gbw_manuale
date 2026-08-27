@@ -153,29 +153,34 @@ Tidak ada lagi `d`/`t`/`tr` (command diagnostik jaringan) -- tidak relevan, tida
 
 Pin ini SENGAJA dipilih untuk tidak bentrok dengan QSPI display board ESP32-C6-Touch-AMOLED-1.64 (yang memakai GPIO4/GPIO5/GPIO7/GPIO10/GPIO11/GPIO19/GPIO20, plus I2C touch/IMU di GPIO8/GPIO18) MAUPUN dengan USB Serial/JTAG Controller ESP32-C6 (GPIO12/GPIO13 default -- firmware ini pakai USB CDC untuk Serial monitor, lihat `platformio.ini`) atau strapping pin (GPIO4/5/8/9/15) -- lihat `src/ui/lv_port.h` untuk daftar lengkap pin terpakai/bebas. Sesuaikan di `include/config.h` kalau wiring fisik kamu beda -- cek dulu daftar GPIO bebas di `src/ui/lv_port.h` sebelum memilih pin baru.
 
-## OTA (update firmware via WiFi)
+## OTA (update firmware via GitHub Release)
 
-WiFi ditambahkan **khusus** untuk OTA (ArduinoOTA) -- **TIDAK dipakai untuk kontrol grind sama sekali**. Motor (GPIO) dan timbangan (HX711) tetap berfungsi normal walau WiFi gagal connect atau sedang proses OTA -- lihat catatan isolasi lengkap di `ota_manager.h`.
+WiFi ditambahkan **khusus** untuk OTA -- **TIDAK dipakai untuk kontrol grind sama sekali**. Motor (GPIO) dan timbangan (HX711) tetap berfungsi normal walau WiFi gagal connect atau sedang proses OTA -- lihat catatan isolasi lengkap di `ota_manager.h`.
+
+**Mekanisme DIGANTI TOTAL (v19)**: sebelumnya pakai `ArduinoOTA` (`espota.py` push firmware dari komputer ke device lewat WiFi lokal). **Diganti ke GitHub OTA** setelah diagnosa menemukan `ArduinoOTA` sangat lambat di jaringan hotspot HP (~2 detik per chunk 1024 byte, walau ping ke device normal) -- pola protokolnya (acknowledgment round-trip tiap chunk kecil) tidak cocok untuk jaringan dengan latency tidak nol. GitHub OTA sebaliknya: device men-download `firmware.bin` dari GitHub Release lewat HTTPS (koneksi TCP tunggal mengalir penuh), jauh lebih cepat untuk kondisi jaringan yang sama. `ArduinoOTA`/`espota.py`/environment `esp32-c6-devkitc-1-ota` di `platformio.ini` **sudah dihapus total**, bukan lagi tersedia sebagai opsi.
 
 ### Setup awal
 
-1. Isi `OTA_WIFI_SSID`/`OTA_WIFI_PASSWORD` di `include/config.h` sesuai WiFi kamu.
-2. **WAJIB ganti** `OTA_PASSWORD` dari default (`gantiPasswordIni`) -- ini password yang diminta ArduinoOTA saat upload, mencegah device lain di jaringan sama iseng push firmware ke alat ini.
-3. Flash pertama kali tetap **lewat USB** (`pio run -t upload`, port serial biasa) -- WiFi/OTA baru bisa dipakai setelah firmware dengan `OtaManager` ini sudah terpasang.
+1. Isi `OTA_WIFI_SSID`/`OTA_WIFI_PASSWORD` di `include/config.h` sesuai WiFi/hotspot kamu -- **hotspot ini WAJIB punya akses internet** (bukan cuma hotspot lokal tanpa data), karena GitHub OTA butuh mengakses `api.github.com`/`github.com` lewat internet, bukan cuma jaringan lokal.
+2. Isi `GITHUB_OTA_OWNER`/`GITHUB_OTA_REPO` di `include/config.h` sesuai repo GitHub publik kamu (contoh project ini: `wahyupras90`/`gbw_manuale`).
+3. Flash pertama kali tetap **lewat USB** (`pio run -e esp32-c6-devkitc-1 -t upload`) -- WiFi/GitHub OTA baru bisa dipakai setelah firmware dengan `GithubOtaManager` ini sudah terpasang.
 
-### Update selanjutnya via OTA
+### Publish update baru
 
-Setelah firmware ini terpasang & WiFi connect (cek Serial Monitor, akan tercetak `[OTA] Siap. Hostname: ... IP: ...`):
+1. Compile firmware seperti biasa: `pio run -e esp32-c6-devkitc-1` (TANPA `-t upload` kalau cuma perlu file `.bin`-nya, tidak perlu USB tersambung).
+2. Ambil file `.pio/build/esp32-c6-devkitc-1/firmware.bin`.
+3. Buat GitHub Release baru di repo (lewat web GitHub atau `gh release create <tag> firmware.bin`), **attach file dengan nama PERSIS `firmware.bin`** (sesuai `GITHUB_OTA_ASSET_NAME` di `config.h`) sebagai asset release.
+4. Di board: buka Settings, pastikan WiFi/hotspot dengan internet aktif, tekan tombol **"CHECK"** di baris "Firmware Update". Device akan query GitHub API, temukan asset di release terbaru, download, flash, lalu reboot otomatis kalau sukses.
 
-```powershell
-& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run --target upload --upload-port <IP_ESP32_ATAU_gbw-grinder.local>
-```
-
-Ganti `<IP_ESP32_ATAU_gbw-grinder.local>` dengan IP yang tercetak di Serial Monitor, atau coba `gbw-grinder.local` kalau mDNS jalan di jaringan kamu (tidak semua router/OS support mDNS dengan baik -- kalau gagal, pakai IP langsung).
+**Tidak perlu bongkar case atau colok USB lagi** untuk update logic/bugfix setelahnya -- selama board masih bisa dijangkau WiFi dan layar/tombol masih bisa disentuh, seluruh alur update cukup lewat tombol CHECK ini.
 
 ### Catatan penting
 
-- **✅ OTA otomatis ditolak saat grinding sedang berjalan (diperbaiki dari versi sebelumnya).** `OtaManager::update(bool allowOtaHandling)` sekarang menerima status dari `main.cpp` (`true` hanya kalau `GrindController` sedang `IDLE`/`COMPLETE`/`ABORT`) -- selama grind aktif (`VALIDATING` s/d `PULSE_CORRECTION`), `ArduinoOTA.handle()` di-skip total pada iterasi loop() itu. Ini BUKAN lagi cuma imbauan "sebaiknya jangan push OTA saat grinding" seperti versi sebelumnya -- OTA benar-benar tidak bisa mengganggu timing predictive-stop sekarang, di level kode.
+- **Trigger MANUAL, bukan otomatis.** Tidak ada polling berkala ke GitHub di background -- device hanya mengecek update saat tombol CHECK ditekan. Ini keputusan eksplisit (tidak perlu device diam-diam mengecek internet sendiri).
+- **`checkAndUpdate()` bersifat BLOCKING** -- LVGL sengaja tidak responsif selama proses check+download+flash berlangsung (bisa beberapa detik sampai beberapa menit tergantung ukuran firmware & kecepatan internet), sama filosofinya dengan bagaimana `ArduinoOTA` dulu memblokir saat upload berlangsung.
+- **TLS pakai `setInsecure()`** (skip verifikasi root CA GitHub) -- keputusan eksplisit, dianggap cukup untuk alat rumahan ini, bukan sistem yang menghadapi ancaman keamanan jaringan serius. Lihat catatan lengkap di `github_ota.h`.
+- Repo GitHub **publik** -- tidak perlu token/autentikasi apa pun untuk fetch release/asset-nya.
+- `httpUpdate.onProgress()` (progress bar granular) SENGAJA belum dipasang -- signature API-nya belum diverifikasi lewat compile aktual di komputer Wahyu saat perubahan ini dibuat. Progress tetap terlihat lewat log default `httpUpdate` di Serial Monitor. Bisa ditambahkan setelah signature dikonfirmasi lewat compile aktual (lihat catatan di `github_ota.cpp`).
 - WiFi selalu aktif & auto-reconnect (bawaan ESP32 STA mode) -- kalau jaringan WiFi kamu berubah (ganti SSID/password), update `config.h` dan re-flash lewat USB.
 - Status WiFi ditampilkan di status bar UI (icon WiFi, ijo = connected) -- lihat `src/ui/ui_common.h`. Icon BLE di sebelahnya masih placeholder (selalu abu-abu), belum ada fitur BLE di firmware ini.
 
