@@ -30,12 +30,25 @@ import os
 
 Import("env")
 
+# PENTING -- __file__ TIDAK TERSEDIA di konteks ini (script di-exec()
+# oleh SCons, bukan diimport sebagai module Python biasa -- lihat
+# error asli yang ditemukan lewat compile aktual: "NameError: name
+# '__file__' is not defined"). Pakai env.get("PROJECT_DIR") (variabel
+# resmi SCons/PlatformIO, dikonfirmasi tersedia di PRE-type script --
+# beda dari beberapa variabel lain seperti PROJECT_SRC_DIR yang
+# kadang cuma tersedia di POST-type script). Fallback ke current
+# working directory (os.getcwd()) kalau entah kenapa key ini tidak
+# ada -- PlatformIO SELALU menjalankan build dari root folder project,
+# jadi os.getcwd() adalah fallback yang aman & masuk akal, bukan
+# tebakan sembarangan.
+PROJECT_DIR = env.get("PROJECT_DIR", os.getcwd())
+
 
 def get_git_version():
     try:
         result = subprocess.run(
             ["git", "describe", "--tags", "--always", "--dirty"],
-            cwd=os.path.dirname(os.path.abspath(__file__)),
+            cwd=PROJECT_DIR,
             capture_output=True,
             text=True,
             timeout=5,
@@ -51,9 +64,7 @@ def get_git_version():
 
 def generate_version_header():
     version = get_git_version()
-    header_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "include", "version.h"
-    )
+    header_path = os.path.join(PROJECT_DIR, "include", "version.h")
     content = (
         "#pragma once\n"
         "// FILE INI DI-GENERATE OTOMATIS oleh generate_version.py tiap\n"
