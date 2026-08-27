@@ -114,7 +114,7 @@ void GithubOtaManager::checkAndUpdate() {
 
     WiFiClientSecure client;
     client.setInsecure();  // lihat catatan keputusan di fetchLatestAssetUrl()
-
+    httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
     // CATATAN: onProgress() callback SENGAJA TIDAK dipasang di sini --
     // signature pastinya (std::function vs raw function pointer) tidak
     // bisa diverifikasi dari sandbox development ini terhadap source
