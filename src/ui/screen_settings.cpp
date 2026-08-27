@@ -2,6 +2,7 @@
 #include "../../include/config.h"
 #include <cstdio>   // BUG DITEMUKAN & DIPERBAIKI LEWAT COMPILE AKTUAL: snprintf() dipakai di bawah tanpa include ini
 #include "../../include/github_ota.h"  // GithubOtaManager -- tombol "Check for Update" menggantikan baris IP Address (lihat catatan create_update_row())
+#include "../../include/version.h"  // FIRMWARE_VERSION -- DI-GENERATE OTOMATIS oleh generate_version.py tiap compile, JANGAN edit include/version.h manual
 
 // ============================================================
 // SETTINGS SCREEN -- SENGAJA HANYA 2 parameter: Tolerance & Max
@@ -216,21 +217,29 @@ static void create_param_row(lv_obj_t* parent, int y_offset, const char* name, c
 }
 
 // ------------------------------------------------------------
-// Baris "Check for Update" (GANTI dari baris IP Address -- keputusan
-// eksplisit setelah pindah ke GitHub OTA, IP address device sudah
-// tidak relevan ditampilkan untuk keperluan OTA lagi, karena OTA
-// sekarang bukan device yang dituju laptop, tapi device yang menarik
-// data dari GitHub). Tombol ini memanggil githubOta.checkAndUpdate()
-// -- BLOCKING (LVGL sengaja tidak responsif selama proses ini, sama
-// filosofinya dengan ArduinoOTA dulu saat upload berlangsung), lalu
-// menampilkan status/progress lewat label di baris ini.
+// Baris "Firmware Update" (GANTI dari baris IP Address -- keputusan
+// eksplisit setelah pindah ke GitHub OTA). Tombol CHECK memanggil
+// githubOta.checkAndUpdate() -- BLOCKING (LVGL sengaja tidak
+// responsif selama proses ini), lalu menampilkan status/progress
+// lewat label di baris ini.
+//
+// LAYOUT DIPERBESAR (dilaporkan tumpang tindih -- row sebelumnya
+// 58px/pad_all=10 terlalu pendek untuk name_label+status_label+
+// check_btn yang sama-sama butuh ruang vertikal, mirip pola bug
+// row Tolerance/Max Pulses sebelumnya): row_h dinaikkan ke 80px
+// (memanfaatkan ruang kosong yang tadinya tersisa sebelum tombol
+// Save, sesuai permintaan eksplisit), pad_all diturunkan ke 8.
+// Ditambah baris versi sekarang & terbaru (permintaan eksplisit),
+// dibatasi 3 baris teks total (bukan 4) supaya tetap muat dengan
+// margin aman -- lihat catatan lengkap di create_update_row().
 // ------------------------------------------------------------
-static lv_obj_t* s_update_status_label = nullptr;
+static lv_obj_t* s_current_version_label = nullptr;
+static lv_obj_t* s_latest_version_label = nullptr;  // dipakai ganda: versi terbaru DAN status hasil check, lihat catatan di create_update_row()
 
 static void check_update_btn_cb(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
 
-    lv_label_set_text(s_update_status_label, "Checking...");
+    lv_label_set_text(s_latest_version_label, "Checking...");
     // lv_refr_now(NULL) -- paksa LVGL render SEKARANG (bukan menunggu
     // giliran lv_timer_handler() di loop() berikutnya), supaya label
     // "Checking..." di atas sempat tampil SEBELUM checkAndUpdate() di
@@ -249,18 +258,28 @@ static void check_update_btn_cb(lv_event_t* e) {
     // kalau sukses, device sudah reboot duluan (lihat catatan di
     // github_ota.cpp GithubOtaManager::checkAndUpdate(), kasus
     // HTTP_UPDATE_OK) dan baris ini tidak akan pernah dieksekusi.
-    lv_label_set_text(s_update_status_label, githubOta.statusText());
+    // Prioritaskan tampilkan versi terbaru kalau berhasil didapat
+    // (lebih berguna buat operator daripada status generik error),
+    // baru fallback ke statusText() kalau versi belum sempat didapat
+    // sama sekali (mis. WiFi gagal connect dari awal).
+    if (githubOta.latestVersion().length() > 0) {
+        char buf[40];
+        snprintf(buf, sizeof(buf), "Latest: %s (%s)", githubOta.latestVersion().c_str(), githubOta.statusText());
+        lv_label_set_text(s_latest_version_label, buf);
+    } else {
+        lv_label_set_text(s_latest_version_label, githubOta.statusText());
+    }
 }
 
 static void create_update_row(lv_obj_t* parent, int y_offset) {
     lv_obj_t* row = lv_obj_create(parent);
-    lv_obj_set_size(row, SCREEN_WIDTH - 40, 58);
+    lv_obj_set_size(row, SCREEN_WIDTH - 40, 80);
     lv_obj_align(row, LV_ALIGN_TOP_MID, 0, y_offset);
     lv_obj_set_style_bg_color(row, COLOR_BG_CARD, 0);
     lv_obj_set_style_border_width(row, 1, 0);
     lv_obj_set_style_border_color(row, lv_color_hex(0x2a2a2a), 0);
     lv_obj_set_style_radius(row, 14, 0);
-    lv_obj_set_style_pad_all(row, 10, 0);
+    lv_obj_set_style_pad_all(row, 8, 0);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* name_label = lv_label_create(row);
@@ -269,11 +288,39 @@ static void create_update_row(lv_obj_t* parent, int y_offset) {
     lv_obj_set_style_text_color(name_label, COLOR_TEXT_PRIMARY, 0);
     lv_obj_align(name_label, LV_ALIGN_TOP_LEFT, 0, 0);
 
-    s_update_status_label = lv_label_create(row);
-    lv_label_set_text(s_update_status_label, "via GitHub");
-    lv_obj_set_style_text_font(s_update_status_label, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(s_update_status_label, COLOR_TEXT_SECONDARY, 0);
-    lv_obj_align_to(s_update_status_label, name_label, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 2);
+    // Versi SEKARANG (baris ke-2) dan gabungan versi-terbaru+status
+    // (baris ke-3) -- KOREKSI setelah dihitung ulang: 4 baris terpisah
+    // (nama/versi-sekarang/versi-terbaru/status) tidak muat di ruang
+    // tersisa (80px tinggi row) tanpa membuat margin ke tombol Save
+    // terlalu ketat (2px, riskan overlap kalau rendering meleset
+    // sedikit dari estimasi). Digabung jadi 3 baris total: versi
+    // terbaru dan status hasil check DIGABUNG SATU baris (keduanya
+    // memang informasi terkait -- "Latest: v1.0.2" lalu berubah jadi
+    // "Success, rebooting..." saat proses berjalan, tidak perlu baris
+    // terpisah).
+    s_current_version_label = lv_label_create(row);
+    char cur_buf[24];
+    snprintf(cur_buf, sizeof(cur_buf), "Running: %s", FIRMWARE_VERSION);
+    lv_label_set_text(s_current_version_label, cur_buf);
+    lv_obj_set_style_text_font(s_current_version_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(s_current_version_label, COLOR_TEXT_SECONDARY, 0);
+    lv_obj_align_to(s_current_version_label, name_label, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 3);
+
+    // s_latest_version_label DIPAKAI GANDA: awalnya tampilkan "Latest:
+    // (press CHECK)", lalu check_update_btn_cb() menimpanya dengan
+    // versi terbaru hasil query, dan KEMUDIAN (kalau checkAndUpdate()
+    // gagal, bukan sukses+reboot) ditimpa LAGI dengan status error dari
+    // githubOta.statusText() -- satu label yang sama dipakai bergantian
+    // untuk 2 keperluan supaya tidak perlu baris ke-4 terpisah.
+    s_latest_version_label = lv_label_create(row);
+    lv_label_set_text(s_latest_version_label, "Latest: (press CHECK)");
+    lv_obj_set_style_text_font(s_latest_version_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(s_latest_version_label, COLOR_ACCENT, 0);
+    lv_obj_align_to(s_latest_version_label, s_current_version_label, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 3);
+
+    // (s_update_status_label DIHAPUS -- statusnya sekarang digabung ke
+    // s_latest_version_label, lihat catatan lengkap di
+    // check_update_btn_cb() dan komentar di atas s_latest_version_label)
 
     lv_obj_t* check_btn = lv_btn_create(row);
     lv_obj_set_size(check_btn, 90, 36);
@@ -281,7 +328,7 @@ static void create_update_row(lv_obj_t* parent, int y_offset) {
     lv_obj_set_style_bg_color(check_btn, lv_color_hex(0x2a2412), 0);
     lv_obj_set_style_border_width(check_btn, 1, 0);
     lv_obj_set_style_border_color(check_btn, COLOR_ACCENT_DIM, 0);
-    lv_obj_align(check_btn, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_align(check_btn, LV_ALIGN_TOP_RIGHT, 0, 0);
     lv_obj_add_event_cb(check_btn, check_update_btn_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t* check_label = lv_label_create(check_btn);
     lv_label_set_text(check_label, "CHECK");

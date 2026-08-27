@@ -108,6 +108,7 @@ extern void ui_init(void);
 extern void ui_tick(void);
 extern void ui_transition_to_pulse_correction(void);
 extern void ui_transition_to_done(void);
+extern ui_screen_id_t ui_get_current_screen(void);  // BARU -- lihat catatan bug di ui_screen_manager.cpp dan handleGrindStateTransitionForUi() di bawah
 
 static WeightFilter weightFilter;
 static GpioMotorController motorController(MOTOR_GPIO_PIN, MOTOR_GPIO_ACTIVE_HIGH);
@@ -266,7 +267,28 @@ static void handleGrindStateTransitionForUi() {
     if (now == GrindState::PULSE_CORRECTION) {
         ui_transition_to_pulse_correction();
     } else if (now == GrindState::COMPLETE || now == GrindState::ABORT) {
-        ui_transition_to_done();
+        // FIX BUG (ditemukan lewat testing sistematis, dilaporkan
+        // sebagai "pencet Start langsung lompat ke Finish Grind" saat
+        // HX711 belum tersambung): GUARD BARU -- cuma navigasi ke Done
+        // kalau screen SEKARANG memang Predictive Grind/Pulse
+        // Correction (operator memang sedang di tengah sesi grind
+        // aktif). SEBELUM fix ini, transisi ke ABORT (state 8, BUKAN
+        // IDLE=0 -- IDLE dan ABORT sempat tertukar dalam analisis
+        // sebelumnya) SELALU memicu navigasi ke Done, termasuk saat
+        // startGrind() ditolak sebelum operator sempat meninggalkan
+        // screen Idle/Set Target sama sekali (grind_start() gagal,
+        // fix ui_desync sebelumnya sudah mencegah navigasi KE
+        // Predictive Grind saat itu, tapi fungsi ini tidak tahu itu
+        // dan tetap asal navigasi KELUAR ke Done).
+        ui_screen_id_t current = ui_get_current_screen();
+        if (current == UI_SCREEN_PREDICTIVE_GRIND || current == UI_SCREEN_PULSE_CORRECTION) {
+            ui_transition_to_done();
+        }
+        // Kalau current BUKAN salah satu dari itu (mis. masih Idle/Set
+        // Target karena grind ditolak sebelum sempat mulai), TIDAK
+        // ADA navigasi -- operator tetap di layar yang sama, cukup
+        // lihat pesan TOLAK di Serial (sudah di-print GrindController
+        // sendiri di startGrind()).
     }
     // Transisi lain (VALIDATING/STARTING/WAIT_FLOW_START/GRINDING/
     // WAIT_SETTLE) TIDAK butuh navigasi screen terpisah -- semuanya

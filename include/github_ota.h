@@ -45,7 +45,7 @@ enum class GithubOtaStatus {
 
 class GithubOtaManager {
 public:
-    GithubOtaManager() : status_(GithubOtaStatus::IDLE), progressPct_(0) {}
+    GithubOtaManager() : status_(GithubOtaStatus::IDLE), progressPct_(0), latestVersion_("") {}
 
     // BLOCKING -- dipanggil dari event handler tombol UI (LVGL sengaja
     // dibiarkan tidak responsif selama proses ini). Tidak dipanggil
@@ -64,9 +64,17 @@ public:
     int progressPct() const { return progressPct_; }
     const char* statusText() const;
 
+    // Versi (tag_name) dari release TERBARU di GitHub -- diisi
+    // sesudah fetchLatestAssetUrl() berhasil (baik lewat
+    // checkAndUpdate() penuh, atau kalau nanti dipanggil terpisah
+    // sebagai cek versi saja tanpa download). Kosong ("") kalau belum
+    // pernah berhasil query GitHub API sejak boot.
+    const String& latestVersion() const { return latestVersion_; }
+
 private:
     GithubOtaStatus status_;
     int progressPct_;
+    String latestVersion_;
 
     // Query GitHub API, isi outDownloadUrl kalau ketemu asset yang
     // cocok. Return false kalau gagal di titik mana pun (lihat

@@ -41,6 +41,32 @@ static ui_screen_id_t s_screen_before_settings = UI_SCREEN_IDLE;  // untuk tombo
 
 static lv_obj_t* s_screens[6] = {nullptr};  // cache, dibuat lazy saat pertama diakses
 
+// ------------------------------------------------------------
+// GETTER BARU -- dipakai main.cpp (handleGrindStateTransitionForUi())
+// untuk memperbaiki BUG DITEMUKAN LEWAT TESTING SISTEMATIS: pencet
+// Start saat startGrind() DITOLAK (mis. HX711 belum tersambung) ->
+// GrindController transisi ke ABORT (BUKAN balik ke IDLE seperti
+// yang SEMPAT DIKIRA sebelumnya -- IDLE=0, ABORT=8 di enum
+// GrindState, ABORT tidak pernah auto-reset ke IDLE) -> UI langsung
+// LOMPAT ke screen Done/"Finish Grind" walau operator TIDAK PERNAH
+// meninggalkan screen Idle/Set Target sama sekali (karena fix
+// ui_desync sebelumnya SUDAH mencegah navigasi ke Predictive Grind
+// saat gagal -- tapi handleGrindStateTransitionForUi() TIDAK tahu
+// itu, dia cuma lihat "state berubah ke ABORT" lalu asal navigasi ke
+// Done, padahal tidak ada sesi grind aktif yang hasilnya perlu
+// ditampilkan).
+//
+// FIX: main.cpp sekarang cek ui_get_current_screen() dulu -- HANYA
+// navigasi ke Done kalau screen SEKARANG memang Predictive
+// Grind/Pulse Correction (artinya operator memang sedang di tengah
+// sesi grind aktif yang hasilnya perlu ditampilkan). Kalau screen
+// sekarang Idle/Set Target (grind ditolak sebelum sempat mulai),
+// transisi ke ABORT diabaikan untuk keperluan navigasi UI -- operator
+// tetap di layar yang sama, cukup lihat pesan TOLAK di Serial.
+ui_screen_id_t ui_get_current_screen(void) {
+    return s_current_screen;
+}
+
 // Dipanggil dari main.cpp untuk trigger mulai grind -- lihat
 // grind_controller.h GrindController::startGrind(). Nama fungsi
 // dipertahankan "grind_start" untuk kompatibilitas dengan komentar

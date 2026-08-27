@@ -59,8 +59,10 @@ bool GithubOtaManager::fetchLatestAssetUrl(String& outDownloadUrl) {
     // Response GitHub /releases/latest bisa lumayan besar (metadata
     // lengkap tiap asset) -- pakai filter ArduinoJson supaya cuma
     // field yang kita butuh yang di-deserialize (hemat RAM, ESP32-C6
-    // tidak punya PSRAM di board ini).
+    // tidak punya PSRAM di board ini). tag_name ditambahkan ke filter
+    // untuk menampilkan versi terbaru di UI (lihat latestVersion()).
     JsonDocument filter;
+    filter["tag_name"] = true;
     filter["assets"][0]["name"] = true;
     filter["assets"][0]["browser_download_url"] = true;
 
@@ -73,12 +75,21 @@ bool GithubOtaManager::fetchLatestAssetUrl(String& outDownloadUrl) {
         return false;
     }
 
+    // Diisi TERLEPAS dari asset ditemukan atau tidak -- operator tetap
+    // ingin tahu versi terbaru yang tersedia di GitHub, meski asetnya
+    // entah kenapa tidak ketemu (mis. release dibuat tanpa attach
+    // firmware.bin).
+    const char* tagName = doc["tag_name"];
+    if (tagName != nullptr) {
+        latestVersion_ = String(tagName);
+    }
+
     JsonArray assets = doc["assets"].as<JsonArray>();
     for (JsonObject asset : assets) {
         const char* name = asset["name"];
         if (name != nullptr && strcmp(name, GITHUB_OTA_ASSET_NAME) == 0) {
             outDownloadUrl = asset["browser_download_url"].as<String>();
-            Serial.printf("[GITHUB-OTA] Asset ditemukan: %s -> %s\n", name, outDownloadUrl.c_str());
+            Serial.printf("[GITHUB-OTA] Asset ditemukan: %s (versi %s) -> %s\n", name, latestVersion_.c_str(), outDownloadUrl.c_str());
             return true;
         }
     }
@@ -114,7 +125,20 @@ void GithubOtaManager::checkAndUpdate() {
 
     WiFiClientSecure client;
     client.setInsecure();  // lihat catatan keputusan di fetchLatestAssetUrl()
+
+    // WAJIB -- browser_download_url dari GitHub Release SELALU redirect
+    // (github.com -> objects.githubusercontent.com, biasanya HTTP 302).
+    // Tanpa ini, httpUpdate.update() gagal persis di titik redirect
+    // tersebut (default HTTPClient TIDAK follow redirect otomatis).
+    // DITEMUKAN & DITAMBAHKAN oleh Wahyu sendiri lewat testing aktual
+    // di board -- dikonfirmasi PERSIS yang bikin GitHub OTA akhirnya
+    // berhasil (compile aktual tidak menemukan bug ini karena ini bug
+    // RUNTIME/network, bukan compile-time). HTTPC_FORCE_FOLLOW_REDIRECTS
+    // dipilih (bukan HTTPC_STRICT_FOLLOW_REDIRECTS) supaya redirect
+    // tetap diikuti walau ada deviasi kecil dari standar HTTP di sisi
+    // server GitHub/CDN-nya.
     httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+
     // CATATAN: onProgress() callback SENGAJA TIDAK dipasang di sini --
     // signature pastinya (std::function vs raw function pointer) tidak
     // bisa diverifikasi dari sandbox development ini terhadap source
