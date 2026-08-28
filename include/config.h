@@ -169,7 +169,16 @@
 // KONSTANTA ALGORITMA -- disalin persis dari grind_control.h
 // upstream (jaapp/smart-grind-by-weight), sama seperti gbw_sim.py
 // ============================================================
-#define GRIND_ACCURACY_TOLERANCE_G           0.03f
+// KOREKSI (ditemukan lewat testing fisik -- grind target 5g hasil
+// 5.09g, error 0.09g ditandai "OUT OF TOLERANCE" padahal Settings
+// batas bawah minus SUDAH dinaikkan ke 0.1f, lihat screen_settings.cpp
+// tolerance_minus_cb()): default di sini TIDAK IKUT diubah saat itu,
+// masih warisan referensi upstream 0.03f -- inkonsistensi (default
+// SISTEM di bawah batas bawah yang bisa dipilih lewat UI-nya sendiri).
+// Dinaikkan ke 0.1f supaya konsisten dengan keputusan tolerance
+// minimum berdasarkan keterbatasan fisik load cell YZC-131 (non-
+// linearity+repeatability datasheet ~0.3-0.5g F.S. worst case).
+#define GRIND_ACCURACY_TOLERANCE_G           0.1f
 #define GRIND_MAX_PULSE_ATTEMPTS             10
 #define GRIND_FLOW_DETECTION_THRESHOLD_GPS   0.5f
 #define GRIND_FLOW_RATE_MIN_SANE_GPS         1.0f
