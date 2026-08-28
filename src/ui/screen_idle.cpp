@@ -1,5 +1,6 @@
 #include "ui_common.h"
 #include "../../include/config.h"   // BUG DITEMUKAN & DIPERBAIKI LEWAT COMPILE AKTUAL DI KOMPUTER USER: PORTAFILTER_DETECT_THRESHOLD_G dipakai di bawah tanpa include ini -- file ini sebelumnya tidak butuh apa pun dari config.h
+#include "../../include/grind_controller.h"   // AbortReason -- dipakai ui_show_grind_reject_reason() untuk debug cepat tanpa Serial (case tertutup fisik)
 #include <cstdio>   // BUG DITEMUKAN & DIPERBAIKI LEWAT COMPILE AKTUAL: snprintf() dipakai di bawah tanpa include ini
 
 static lv_obj_t* s_screen = nullptr;
@@ -10,6 +11,7 @@ static lv_obj_t* s_phase_pill = nullptr;
 static lv_obj_t* s_flow_stat = nullptr;
 static lv_obj_t* s_latency_stat = nullptr;
 static lv_obj_t* s_pulse_stat = nullptr;
+static lv_obj_t* s_reject_label = nullptr;
 
 extern void ui_open_settings(lv_event_t* e);
 extern void ui_start_grind(lv_event_t* e);
@@ -119,6 +121,30 @@ lv_obj_t* ui_screen_idle_create(void) {
     s_pulse_stat = create_stat_item(stats_row, "PULSES");
     lv_label_set_text(lv_obj_get_child(s_pulse_stat, 0), "0/0");  // diisi angka asli di ui_screen_idle_update()
 
+    // Label alasan tolak grind -- DEBUG CEPAT (permintaan eksplisit
+    // Wahyu, tanpa Serial/USB karena case sudah tertutup fisik).
+    // Kosong secara default, diisi ui_show_grind_reject_reason() SEKALI
+    // tiap kali grind_start() gagal (lihat ui_start_grind() di
+    // ui_screen_manager.cpp). SENGAJA TIDAK dikosongkan otomatis di
+    // ui_screen_idle_update() (dipanggil terus-menerus tiap update
+    // berat baru) -- kalau begitu, pesan akan hilang dalam sepersekian
+    // detik, operator tidak sempat baca. Dikosongkan HANYA di
+    // ui_clear_grind_reject_reason() (ui_screen_manager.cpp), dipanggil
+    // ui_start_grind() SEBELUM setiap percobaan Start baru -- supaya
+    // pesan lama tidak nyangkut kalau percobaan berikutnya berhasil
+    // atau gagal dengan alasan berbeda. SENGAJA diletakkan di celah
+    // 30px antara stats_row & start_btn (dihitung eksplisit lewat
+    // kalkulasi Python: ring+pill+stats_row bottom ~338px, start_btn
+    // top ~368px), font 12px supaya muat.
+    s_reject_label = lv_label_create(s_screen);
+    lv_label_set_text(s_reject_label, "");
+    lv_obj_set_style_text_font(s_reject_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(s_reject_label, COLOR_WARN, 0);
+    lv_obj_set_width(s_reject_label, SCREEN_WIDTH - 32);
+    lv_obj_set_style_text_align(s_reject_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(s_reject_label, LV_LABEL_LONG_WRAP);
+    lv_obj_align_to(s_reject_label, stats_row, LV_ALIGN_OUT_BOTTOM_MID, 0, 6);
+
     // Tombol Start di bawah
     lv_obj_t* start_btn = lv_btn_create(s_screen);
     // STANDARISASI (permintaan eksplisit -- semua tombol bawah harus
@@ -150,6 +176,40 @@ lv_obj_t* ui_screen_idle_create(void) {
     ui_enable_swipe_home(s_screen);  // layar aman -- swipe kanan boleh aktif (lihat catatan lengkap di ui_screen_manager.cpp)
 
     return s_screen;
+}
+
+// Dipanggil dari ui_start_grind() (ui_screen_manager.cpp) SETIAP kali
+// grind_start() gagal -- tampilkan alasan tolak singkat di layar Idle,
+// TANPA perlu Serial/USB (debug cepat, case sudah tertutup fisik).
+// Mapping AbortReason -> teks: hanya dua alasan yang REALISTIS terjadi
+// tepat setelah tombol Start ditekan (INVALID_WEIGHT/UNSTABLE_WEIGHT,
+// lihat startGrind() di grind_controller.cpp) -- alasan lain
+// (HARD_OVERSHOOT/STALL/TIMEOUT/MOTOR_*_FAILED) hanya terjadi SETELAH
+// grind sudah berjalan, jadi ditampilkan generik kalau somehow muncul
+// di sini (seharusnya tidak pernah, tapi jangan diam-diam salah tampil
+// kalau asumsi ini ternyata keliru).
+void ui_show_grind_reject_reason(AbortReason reason) {
+    if (s_reject_label == nullptr) return;
+    switch (reason) {
+        case AbortReason::INVALID_WEIGHT:
+            lv_label_set_text(s_reject_label, "Timbangan belum baca berat -- cek load cell/HX711 tersambung");
+            break;
+        case AbortReason::UNSTABLE_WEIGHT:
+            lv_label_set_text(s_reject_label, "Berat belum stabil -- tunggu beberapa detik, coba lagi");
+            break;
+        default:
+            lv_label_set_text(s_reject_label, "Grind ditolak -- lihat Serial untuk detail");
+            break;
+    }
+}
+
+// Dipanggil ui_start_grind() SEBELUM grind_start() -- bersihkan pesan
+// tolak SEBELUMNYA (kalau ada) tiap kali operator mencoba lagi, supaya
+// pesan lama tidak nyangkut kalau percobaan baru ini berhasil atau
+// gagal dengan alasan berbeda.
+void ui_clear_grind_reject_reason(void) {
+    if (s_reject_label == nullptr) return;
+    lv_label_set_text(s_reject_label, "");
 }
 
 // Dipanggil dari main loop tiap ada update berat baru, supaya label &

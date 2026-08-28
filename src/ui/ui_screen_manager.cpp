@@ -1,5 +1,6 @@
 #include "ui_common.h"
 #include "../../include/config.h"
+#include "../../include/grind_controller.h"   // AbortReason -- lihat ui_show_grind_reject_reason() di screen_idle.cpp
 
 // Deklarasi create function tiap screen
 extern lv_obj_t* ui_screen_set_target_create(void);
@@ -10,12 +11,18 @@ extern lv_obj_t* ui_screen_done_create(void);
 extern lv_obj_t* ui_screen_settings_create(void);
 extern lv_obj_t* ui_screen_manual_grind_create(void);
 extern void ui_screen_manual_grind_update(void);
+extern lv_obj_t* ui_screen_debug_create(void);
+extern void ui_screen_debug_update(void);
 
 // Update function tiap screen (dipanggil dari main loop saat screen itu aktif)
 extern void ui_screen_idle_update(void);
 extern void ui_screen_predictive_grind_update(void);
 extern void ui_screen_pulse_correction_update(void);
 extern void ui_screen_done_update(void);
+
+// Debug cepat alasan tolak grind (tanpa Serial) -- lihat screen_idle.cpp
+extern void ui_show_grind_reject_reason(AbortReason reason);
+extern void ui_clear_grind_reject_reason(void);
 
 // ============================================================
 // STATE GLOBAL BERSAMA -- didefinisikan di sini (extern di ui_common.h)
@@ -41,7 +48,7 @@ ui_shared_state_t g_ui_state = {
 static ui_screen_id_t s_current_screen = UI_SCREEN_IDLE;
 static ui_screen_id_t s_screen_before_settings = UI_SCREEN_IDLE;  // untuk tombol back di Settings
 
-static lv_obj_t* s_screens[7] = {nullptr};  // dinaikkan 6->7 -- UI_SCREEN_MANUAL_GRIND ditambahkan
+static lv_obj_t* s_screens[8] = {nullptr};  // dinaikkan 7->8 -- UI_SCREEN_DEBUG ditambahkan
 
 // ------------------------------------------------------------
 // GETTER BARU -- dipakai main.cpp (handleGrindStateTransitionForUi())
@@ -74,6 +81,7 @@ ui_screen_id_t ui_get_current_screen(void) {
 // dipertahankan "grind_start" untuk kompatibilitas dengan komentar
 // lama di README (lihat catatan migrasi di sana).
 extern bool grind_start(float target_g);  // return value ditambahkan -- lihat catatan bug di main.cpp grind_start()
+extern AbortReason grind_last_abort_reason();  // debug cepat alasan tolak tanpa Serial -- lihat main.cpp
 
 static lv_obj_t* get_or_create_screen(ui_screen_id_t id) {
     if (s_screens[id] != nullptr) return s_screens[id];
@@ -86,6 +94,7 @@ static lv_obj_t* get_or_create_screen(ui_screen_id_t id) {
         case UI_SCREEN_DONE:             s_screens[id] = ui_screen_done_create(); break;
         case UI_SCREEN_SETTINGS:         s_screens[id] = ui_screen_settings_create(); break;
         case UI_SCREEN_MANUAL_GRIND:     s_screens[id] = ui_screen_manual_grind_create(); break;
+        case UI_SCREEN_DEBUG:            s_screens[id] = ui_screen_debug_create(); break;
     }
     return s_screens[id];
 }
@@ -164,6 +173,17 @@ void ui_close_manual_grind(lv_event_t* e) {
     navigate_to(UI_SCREEN_SETTINGS);
 }
 
+// Debug (read-only, tidak ada motor/state yang perlu "dibereskan"
+// dulu seperti Manual Grind) -- akses dari Settings, SELALU kembali
+// ke UI_SCREEN_SETTINGS.
+void ui_open_debug(lv_event_t* e) {
+    navigate_to(UI_SCREEN_DEBUG);
+}
+
+void ui_close_debug(lv_event_t* e) {
+    navigate_to(UI_SCREEN_SETTINGS);
+}
+
 void ui_confirm_target(float target_g) {
     g_ui_state.target_weight_g = target_g;
     // target_absolute_g -- BELUM ada nilai valid dari GrindController
@@ -192,8 +212,19 @@ void ui_start_grind(lv_event_t* e) {
     // Pesan TOLAK spesifik (kenapa gagal) sudah di-print GrindController
     // sendiri ke Serial (lihat startGrind()) -- tetap di screen Set
     // Target/Idle di sini supaya operator bisa coba lagi.
+    ui_clear_grind_reject_reason();  // bersihkan pesan tolak percobaan SEBELUMNYA (kalau ada)
     if (grind_start(g_ui_state.target_weight_g)) {
         navigate_to(UI_SCREEN_PREDICTIVE_GRIND);
+    } else {
+        // DEBUG CEPAT tanpa Serial (permintaan eksplisit Wahyu, case
+        // sudah tertutup fisik) -- tampilkan alasan tolak di layar
+        // Idle. grindController TIDAK diekspos langsung ke UI layer
+        // (lihat pola project ini -- akses selalu lewat main.cpp), tapi
+        // grind_start() ini SENDIRI ada di main.cpp dan memanggil
+        // grindController.startGrind(), jadi grindController.abortReason()
+        // hanya bisa dibaca dari main.cpp -- lihat grind_start() di
+        // main.cpp untuk bagaimana alasan ini diteruskan ke sini.
+        ui_show_grind_reject_reason(grind_last_abort_reason());
     }
 }
 
@@ -238,6 +269,7 @@ void ui_tick(void) {
         case UI_SCREEN_PREDICTIVE_GRIND: ui_screen_predictive_grind_update(); break;
         case UI_SCREEN_PULSE_CORRECTION: ui_screen_pulse_correction_update(); break;
         case UI_SCREEN_MANUAL_GRIND:     ui_screen_manual_grind_update(); break;
+        case UI_SCREEN_DEBUG:            ui_screen_debug_update(); break;
         default: break;  // Set Target, Done, Settings tidak perlu tick berkala
     }
 

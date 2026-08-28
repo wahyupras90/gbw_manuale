@@ -62,6 +62,15 @@ bool WeightFilter::hasSample() const {
     return hasLastSample_;
 }
 
+void WeightFilter::reset() {
+    // Sama persis seperti state constructor -- lihat WeightFilter::WeightFilter().
+    head_ = 0;
+    count_ = 0;
+    hasLastSample_ = false;
+    lastWeight_ = 0.0f;
+    lastTimestampMs_ = 0;
+}
+
 FlowRateResult WeightFilter::computeFlowRate() const {
     FlowRateResult result{false, 0.0f, 0.0f};
 

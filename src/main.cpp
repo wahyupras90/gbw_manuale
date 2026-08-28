@@ -88,6 +88,7 @@
 #include "hx711_reader.h"
 #include "latency_calibrator.h"
 #include "grind_controller.h"
+#include "debug_snapshot.h"
 #include "ota_manager.h"
 
 // ============================================================
@@ -143,7 +144,126 @@ static GrindState s_lastGrindState = GrindState::IDLE;
 // screen Predictive Grind.
 // ------------------------------------------------------------
 bool grind_start(float target_g) {
+    // AUTO-TARE -- dijalankan SEKALI di sini, SEBELUM startGrind()
+    // sama sekali menyentuh weightFilter_/hasSample()/computeFlowRate().
+    // Alasan (disepakati dengan Wahyu setelah kalibrasi fisik HX711):
+    // raw baseline (offset nol) HX711 terbukti drift signifikan (>900
+    // unit raw antar sesi, setara ~0.45g pada HX711_CALIBRATION_SCALE
+    // hasil kalibrasi -- 4.5x tolerance minimum 0.1g) bahkan setelah
+    // device menyala 1 jam tanpa disentuh. HX711_CALIBRATION_SCALE
+    // (slope gram-per-unit) diyakini stabil jangka panjang dan TETAP
+    // dari config.h -- HANYA offset yang perlu segar tiap sesi.
+    //
+    // "Fresh" di sini artinya: berapa pun berat yang ada di load cell
+    // SAAT TOMBOL START DITEKAN (portafilter/dosing cup kosong sudah
+    // boleh terpasang) DIANGGAP NOL. Ini SENGAJA menggantikan makna
+    // startWeightG_ sebagai "baseline gram sebelum grind" -- setelah
+    // auto-tare ini, weightFilter_->latestWeight() akan mulai dari
+    // ~0 dengan sendirinya, startGrind() TIDAK diubah sama sekali.
+    //
+    // BLOCKING sesaat (readRawAverage(10), pola sama seperti command
+    // Serial 'raw') -- durasi sama seperti perintah 'raw' yang sudah
+    // dipakai rutin tanpa masalah, jadi diterima di titik SEBELUM
+    // grind dimulai (bukan di tengah grind/loop() rutin).
+    if (HX711_CALIBRATION_SCALE != 0.0f) {
+        long freshOffset = hx711.readRawAverage(10);
+        hx711.setCalibration(freshOffset, HX711_CALIBRATION_SCALE);
+        // WAJIB reset weightFilter SETELAH offset baru diset -- lihat
+        // catatan lengkap di WeightFilter::reset() (weight_filter.h).
+        // Tanpa ini, sample lama (basis offset SEBELUM tare) masih
+        // ada di buffer/lastWeight_, dan sample pertama pasca-tare
+        // bisa ditolak sebagai "delta absurd" oleh pushRawSample().
+        weightFilter.reset();
+
+        // BUG DITEMUKAN & DIPERBAIKI (lewat layar Debug baru + testing
+        // fisik langsung bareng Wahyu): weightFilter.reset() di atas
+        // membuat hasLastSample_ langsung false, TAPI startGrind() di
+        // bawah dipanggil SYNCHRONOUS tepat sesudahnya -- loop() TIDAK
+        // PERNAH sempat jalan lagi di antara reset() dan startGrind()
+        // untuk mengisi sample baru (pushRawSample() cuma dipanggil
+        // dari loop(), bukan dari sini). Akibatnya startGrind() SELALU
+        // menolak dengan INVALID_WEIGHT tepat setelah tare, walau HX711
+        // fisik terbukti berfungsi normal (layar Debug menunjukkan
+        // hasSample=YA sebelumnya -- itu dari sample LAMA sebelum tare
+        // yang baru saja dihapus reset() di atas).
+        //
+        // FIX: ambil BEBERAPA sample gram di sini secara eksplisit
+        // (readWeightGrams(), masing-masing BLOCKING lewat wait_ready()
+        // internal HX711 -- lihat HX711::read() di library) dan masukkan
+        // ke weightFilter, SEBELUM startGrind() dipanggil. SATU sample
+        // saja TIDAK CUKUP -- computeFlowRate() butuh count_>=2 DAN
+        // windowSpanMs>=WEIGHT_FILTER_MIN_WINDOW_SPAN_MS (60ms, lihat
+        // weight_filter.cpp) untuk hasilkan valid=true, kalau tidak
+        // startGrind() tetap menolak (dengan UNSTABLE_WEIGHT, bukan lagi
+        // INVALID_WEIGHT). Wahyu mengonfirmasi HX711 board ini di mode
+        // 10Hz (~100ms per sample baru) -- 3 sample berturut-turut lewat
+        // wait_ready() alami sudah cukup memberi windowSpanMs ~200ms,
+        // jauh di atas minimum 60ms, TANPA perlu delay() eksplisit
+        // tambahan. Kalau di masa depan HX711 diganti/dikonfigurasi ke
+        // rate lebih cepat (80Hz, ~12.5ms/sample), 3 sample TIDAK CUKUP
+        // (span cuma ~25ms) -- kalau itu terjadi, naikkan jumlah sample
+        // di sini atau tambah delay() eksplisit (lihat diskusi project).
+        for (int i = 0; i < 3 && hx711.isReady(); i++) {
+            float freshWeight = hx711.readWeightGrams();
+            if (!isnan(freshWeight)) {
+                weightFilter.pushRawSample(freshWeight, millis(), GRIND_FLOW_RATE_MAX_SANE_GPS);
+            }
+        }
+        Serial.printf("[HX711] Auto-tare sebelum grind -- offset baru: %ld\n", freshOffset);
+    }
+    // Kalau HX711_CALIBRATION_SCALE masih 0.0f (belum pernah
+    // dikalibrasi fisik sama sekali), SENGAJA skip auto-tare di atas
+    // -- readWeightGrams() tetap NAN seperti semula, startGrind() di
+    // bawah ini akan tetap menolak lewat jalur hasSample() yang sudah
+    // ada (lihat grind_controller.cpp), TIDAK ada perilaku baru yang
+    // diam-diam menganggap sistem siap padahal belum dikalibrasi.
     return grindController.startGrind(target_g);
+}
+
+// Dipanggil ui_screen_manager.cpp (ui_start_grind(), SETELAH grind_start()
+// return false) -- SATU-SATUNYA cara UI layer baca alasan tolak, karena
+// grindController itu objek `static` di file ini, TIDAK diekspos langsung
+// ke UI (lihat pola project ini -- akses selalu lewat fungsi pembungkus
+// seperti grind_start()). Ditambahkan untuk debug cepat tanpa Serial
+// (permintaan eksplisit Wahyu, case sudah tertutup fisik) -- lihat
+// ui_show_grind_reject_reason() di screen_idle.cpp untuk mapping teksnya.
+AbortReason grind_last_abort_reason() {
+    return grindController.abortReason();
+}
+
+// Snapshot data debug -- dikumpulkan SEKALI per panggilan (bukan
+// banyak getter terpisah) supaya screen_debug.cpp cukup 1 pemanggilan
+// per refresh, konsisten dari titik waktu yang sama. SEMUA field di
+// sini READ-ONLY dari sisi UI -- tidak ada yang mengubah state HX711/
+// weightFilter/grindController. Struct DebugSnapshot didefinisikan di
+// include/debug_snapshot.h (dipakai bersama main.cpp & screen_debug.cpp).
+
+// Dipanggil screen_debug.cpp TIAP refresh (lihat ui_screen_debug_update())
+// -- weightFilter/hx711 objek `static` di file ini, TIDAK diekspos
+// langsung ke UI (pola sama seperti grind_last_abort_reason()).
+// PERINGATAN: readRawAverage(1) di sini BLOCKING sesaat (1 sample,
+// bukan 10 seperti auto-tare/command 'raw' -- SENGAJA diminimalkan
+// supaya layar Debug tetap terasa responsif walau dipanggil tiap
+// refresh UI, beda dari auto-tare yang cuma dipanggil SEKALI per sesi
+// grind jadi wajar pakai 10 sample untuk akurasi lebih baik). Kalau
+// HX711 belum isReady(), rawAdc diisi -1 sebagai penanda "tidak
+// tersedia" (BUKAN 0 -- 0 valid secara teknis sebagai nilai raw,
+// dashboard harus bisa bedakan "belum ada data" dari "raw = 0").
+DebugSnapshot grind_get_debug_snapshot() {
+    DebugSnapshot snap;
+    if (hx711.isReady()) {
+        snap.rawAdc = hx711.readRawAverage(1);
+    } else {
+        snap.rawAdc = -1;
+    }
+    snap.offsetActive = hx711.currentOffset();
+    snap.scaleActive = hx711.currentScale();
+    snap.weightGrams = hx711.readWeightGrams();
+    snap.hasSample = weightFilter.hasSample();
+    FlowRateResult flow = weightFilter.computeFlowRate();
+    snap.flowValid = flow.valid;
+    snap.flowRateGps = flow.valid ? flow.flowRateGps : NAN;
+    return snap;
 }
 
 // ------------------------------------------------------------
@@ -495,6 +615,21 @@ void setup() {
     if (HX711_CALIBRATION_SCALE == 0.0f) {
         Serial.println("[HX711] PERINGATAN -- kalibrasi (HX711_CALIBRATION_OFFSET/SCALE) BELUM diisi di config.h.");
         Serial.println("[HX711] Ikuti README bagian 'Cara kalibrasi HX711' sebelum kalibrasi/grind dipakai.");
+    } else if (hx711.isReady()) {
+        // Tare kosmetik SEKALI saat boot -- MURNI supaya indikator warna
+        // "portafilter terpasang" di layar Idle (screen_idle.cpp, bandingkan
+        // current_weight_g absolut ke PORTAFILTER_DETECT_THRESHOLD_G) tidak
+        // salah nyala sebelum grind pertama ditekan (HX711_CALIBRATION_OFFSET
+        // di config.h SENGAJA 0L -- lihat catatan di sana). TIDAK menggantikan
+        // auto-tare per sesi di grind_start(): kalau load cell KEBETULAN sudah
+        // ada beban saat boot (portafilter sudah terpasang), indikator ini
+        // cuma salah SESAAT sampai grind pertama ditekan -- validasi/akurasi
+        // grind TIDAK terpengaruh sama sekali (tare grind_start() tetap jalan
+        // independen). isReady() dicek dulu supaya tidak blocking kalau HX711
+        // belum siap kirim sample pertama (hindari readRawAverage() macet).
+        long bootOffset = hx711.readRawAverage(10);
+        hx711.setCalibration(bootOffset, HX711_CALIBRATION_SCALE);
+        Serial.printf("[HX711] Tare kosmetik saat boot -- offset awal: %ld\n", bootOffset);
     }
 
     latencyCalibrator.setUnknownCommandHandler(handleGrindCommand);

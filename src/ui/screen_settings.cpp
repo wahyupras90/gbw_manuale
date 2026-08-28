@@ -384,6 +384,59 @@ static void create_manual_grind_row(lv_obj_t* parent, int y_offset) {
     lv_obj_center(open_label);
 }
 
+// ------------------------------------------------------------
+// Baris "Debug" (BARU) -- pintu masuk ke layar diagnostik HX711/
+// validasi grind tanpa Serial (lihat screen_debug.cpp). Ditambahkan
+// karena permintaan eksplisit Wahyu: setelah case dipasang & power
+// pindah ke buck 5V (USB tidak lagi praktis diakses), grind ditolak
+// tanpa cara melihat kenapa. Row SEDERHANA sama seperti Manual Grind
+// -- cuma nama + tombol OPEN, detail diagnostik ada di layar tujuan.
+// SENGAJA ditaruh SETELAH create_manual_grind_row() di scroll_area
+// (lihat pemanggilan di ui_screen_settings_create()), gap 8px
+// konsisten dengan row lain (dihitung eksplisit -- lihat riwayat
+// kalkulasi layout Settings di README/brief, pola yang sama dipakai
+// di sini).
+// ------------------------------------------------------------
+extern void ui_open_debug(lv_event_t* e);
+
+static void create_debug_row(lv_obj_t* parent, int y_offset) {
+    lv_obj_t* row = lv_obj_create(parent);
+    lv_obj_set_size(row, SCREEN_WIDTH - 40, 66);
+    lv_obj_align(row, LV_ALIGN_TOP_MID, 0, y_offset);
+    lv_obj_set_style_bg_color(row, COLOR_BG_CARD, 0);
+    lv_obj_set_style_border_width(row, 1, 0);
+    lv_obj_set_style_border_color(row, lv_color_hex(0x2a2a2a), 0);
+    lv_obj_set_style_radius(row, 14, 0);
+    lv_obj_set_style_pad_all(row, 10, 0);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* name_label = lv_label_create(row);
+    lv_label_set_text(name_label, "Debug");
+    lv_obj_set_style_text_font(name_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(name_label, COLOR_TEXT_PRIMARY, 0);
+    lv_obj_align(name_label, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    lv_obj_t* desc_label = lv_label_create(row);
+    lv_label_set_text(desc_label, "HX711 raw / validasi grind tanpa Serial");
+    lv_obj_set_style_text_font(desc_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(desc_label, COLOR_TEXT_SECONDARY, 0);
+    lv_obj_align_to(desc_label, name_label, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 3);
+
+    lv_obj_t* open_btn = lv_btn_create(row);
+    lv_obj_set_size(open_btn, 70, 36);
+    lv_obj_set_style_radius(open_btn, 12, 0);
+    lv_obj_set_style_bg_color(open_btn, lv_color_hex(0x2a2412), 0);
+    lv_obj_set_style_border_width(open_btn, 1, 0);
+    lv_obj_set_style_border_color(open_btn, COLOR_ACCENT_DIM, 0);
+    lv_obj_align(open_btn, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_add_event_cb(open_btn, ui_open_debug, LV_EVENT_CLICKED, NULL);
+    lv_obj_t* open_label = lv_label_create(open_btn);
+    lv_label_set_text(open_label, "OPEN");
+    lv_obj_set_style_text_font(open_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(open_label, COLOR_ACCENT, 0);
+    lv_obj_center(open_label);
+}
+
 lv_obj_t* ui_screen_settings_create(void) {
     s_screen = lv_obj_create(NULL);
     ui_apply_screen_bg(s_screen);
@@ -444,6 +497,8 @@ lv_obj_t* ui_screen_settings_create(void) {
     create_update_row(scroll_area, 216);
 
     create_manual_grind_row(scroll_area, 304);
+
+    create_debug_row(scroll_area, 378);
 
     lv_obj_t* save_btn = lv_btn_create(s_screen);
     // KOREKSI (dilaporkan -- ukuran beda dari tombol lain): SEBELUMNYA

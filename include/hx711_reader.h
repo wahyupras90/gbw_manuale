@@ -66,6 +66,15 @@ public:
     // normal operasi karena blocking).
     long readRawAverage(uint8_t times = 10);
 
+    // Getter kalibrasi aktif -- DITAMBAHKAN untuk layar Debug
+    // (screen_debug.cpp), supaya operator bisa lihat offset/scale yang
+    // SEDANG dipakai firmware saat ini tanpa Serial (mis. setelah
+    // auto-tare di grind_start()/setup() mengubah offset_ dari nilai
+    // config.h aslinya). Read-only, tidak mengubah state apa pun.
+    long currentOffset() const { return offset_; }
+    float currentScale() const { return scaleUnitsPerGram_; }
+    bool isCalibrationSet() const { return calibrationSet_; }
+
 private:
     HX711 hx711_;
     uint8_t doutPin_;

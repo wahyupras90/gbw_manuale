@@ -103,6 +103,19 @@ public:
     float latestWeight() const;
     bool hasSample() const;
 
+    // Kosongkan buffer & baseline delta-check SEPENUHNYA -- WAJIB
+    // dipanggil tepat setelah HX711Reader::setCalibration() dengan
+    // offset baru (auto-tare, lihat grind_start() di main.cpp).
+    // Tanpa ini, sample pertama pasca-tare bisa dibandingkan ke
+    // lastWeight_ dari SEBELUM tare (basis offset lama) di
+    // pushRawSample() -- selisihnya bisa melebihi maxDeltaG (delta
+    // outlier absurd) dan DITOLAK terus-menerus (lastWeight_/
+    // hasLastSample_ tidak pernah ter-update saat sample ditolak,
+    // lihat komentar di pushRawSample()), sehingga hasSample()/
+    // computeFlowRate() macet memakai data basi sampai drift alami
+    // kebetulan kembali dekat nilai lama.
+    void reset();
+
 private:
     static const size_t BUFFER_SIZE = 16;
     WeightSample samples_[BUFFER_SIZE];

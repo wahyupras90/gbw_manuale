@@ -129,12 +129,25 @@
 // menemukan URL download dan melaporkan error (lihat github_ota.cpp).
 #define GITHUB_OTA_ASSET_NAME  "firmware.bin"
 
-// KALIBRASI HX711 -- WAJIB diisi dari kalibrasi fisik (lihat README
-// bagian "Cara kalibrasi HX711"), placeholder 0 di bawah SENGAJA
-// membuat HX711Reader menolak dipakai (readWeightGrams() return NAN)
-// sampai diisi angka asli -- lihat catatan di hx711_reader.h.
+// KALIBRASI HX711 -- SCALE hasil kalibrasi fisik (load cell terpasang
+// di case final), diverifikasi linear di 4 titik (0g, 122.1g, 232.6g,
+// 499.4g), error <0.1% pada titik cross-check independen. Diyakini
+// stabil jangka panjang (TIDAK seperti offset di bawah).
+//
+// OFFSET SENGAJA tetap 0L secara permanen -- JANGAN diisi angka tetap
+// dari kalibrasi manapun. Raw baseline (nol) terbukti drift signifikan
+// (>900 unit antar sesi, ~0.45g setara pada scale di atas -- 4.5x
+// tolerance minimum 0.1g) bahkan setelah 1 jam menyala tanpa load cell
+// disentuh. Sebagai gantinya, firmware melakukan AUTO-TARE tiap kali
+// grind_start() dipanggil (lihat main.cpp) -- offset RUNTIME diambil
+// segar dari readRawAverage() setiap sesi lewat hx711.setCalibration(),
+// TIDAK PERNAH dari nilai tetap di sini. HX711_CALIBRATION_OFFSET di
+// bawah ini HANYA dipakai sebagai nilai awal sebelum grind pertama kali
+// dipanggil (mis. indikator UI Idle sebelum ada sesi grind sama sekali)
+// -- boleh tetap 0L, TIDAK memengaruhi akurasi grind karena selalu
+// ditimpa auto-tare sebelum startGrind() membaca berat apa pun.
 #define HX711_CALIBRATION_OFFSET       0L
-#define HX711_CALIBRATION_SCALE        0.0f   // units per gram
+#define HX711_CALIBRATION_SCALE        2022.88f   // units per gram -- hasil kalibrasi fisik, lihat catatan di atas
 
 // Ambang batas berat ABSOLUT (bukan dose) untuk anggap portafilter/
 // wadah "terpasang" di layar Idle -- MURNI indikator visual (warna
