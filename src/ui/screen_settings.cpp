@@ -41,7 +41,7 @@ static void tolerance_minus_cb(lv_event_t* e) {
     if (code == LV_EVENT_LONG_PRESSED_REPEAT) s_tolerance_minus_repeat++;
     float step = 0.01f * ui_repeat_step_multiplier(s_tolerance_minus_repeat);
     g_ui_state.accuracy_tolerance_g -= step;
-    if (g_ui_state.accuracy_tolerance_g < 0.01f) g_ui_state.accuracy_tolerance_g = 0.01f;  // batas bawah wajar, jangan 0
+    if (g_ui_state.accuracy_tolerance_g < 0.1f) g_ui_state.accuracy_tolerance_g = 0.1f;  // batas bawah wajar (dinaikkan dari 0.01f -- YZC-131 akurasi fisik ~0.3-0.5g, toleransi di bawah itu tidak realistis dicapai)
     char buf[8];
     snprintf(buf, sizeof(buf), "%.2f", g_ui_state.accuracy_tolerance_g);
     lv_label_set_text(s_tolerance_value, buf);
