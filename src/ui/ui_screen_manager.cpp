@@ -8,6 +8,8 @@ extern lv_obj_t* ui_screen_predictive_grind_create(void);
 extern lv_obj_t* ui_screen_pulse_correction_create(void);
 extern lv_obj_t* ui_screen_done_create(void);
 extern lv_obj_t* ui_screen_settings_create(void);
+extern lv_obj_t* ui_screen_manual_grind_create(void);
+extern void ui_screen_manual_grind_update(void);
 
 // Update function tiap screen (dipanggil dari main loop saat screen itu aktif)
 extern void ui_screen_idle_update(void);
@@ -39,7 +41,7 @@ ui_shared_state_t g_ui_state = {
 static ui_screen_id_t s_current_screen = UI_SCREEN_IDLE;
 static ui_screen_id_t s_screen_before_settings = UI_SCREEN_IDLE;  // untuk tombol back di Settings
 
-static lv_obj_t* s_screens[6] = {nullptr};  // cache, dibuat lazy saat pertama diakses
+static lv_obj_t* s_screens[7] = {nullptr};  // dinaikkan 6->7 -- UI_SCREEN_MANUAL_GRIND ditambahkan
 
 // ------------------------------------------------------------
 // GETTER BARU -- dipakai main.cpp (handleGrindStateTransitionForUi())
@@ -83,6 +85,7 @@ static lv_obj_t* get_or_create_screen(ui_screen_id_t id) {
         case UI_SCREEN_PULSE_CORRECTION: s_screens[id] = ui_screen_pulse_correction_create(); break;
         case UI_SCREEN_DONE:             s_screens[id] = ui_screen_done_create(); break;
         case UI_SCREEN_SETTINGS:         s_screens[id] = ui_screen_settings_create(); break;
+        case UI_SCREEN_MANUAL_GRIND:     s_screens[id] = ui_screen_manual_grind_create(); break;
     }
     return s_screens[id];
 }
@@ -137,6 +140,28 @@ void ui_open_settings(lv_event_t* e) {
 
 void ui_close_settings(lv_event_t* e) {
     navigate_to(s_screen_before_settings);
+}
+
+// ------------------------------------------------------------
+// Manual Grind (test motor/kalibrasi) -- akses dari Settings (baris
+// baru, scroll). SELALU kembali ke UI_SCREEN_SETTINGS (bukan
+// s_screen_before_settings seperti ui_close_settings) -- konteks
+// pemakaiannya konsisten cuma dari Settings, tidak perlu general
+// "kembali ke layar sebelumnya" seperti Settings sendiri.
+//
+// ui_close_manual_grind() TIDAK dipanggil langsung dari tombol Back
+// di screen_manual_grind.cpp -- tombol itu memanggil
+// manual_grind_close_request() (extern dari main.cpp) DULU untuk
+// memastikan motor mati kalau masih menyala (lihat catatan lengkap
+// di screen_manual_grind.cpp), BARU fungsi ini dipanggil untuk
+// navigasi. Dipisah supaya urutan "matikan motor DULU, baru
+// navigasi" selalu konsisten, tidak bisa tertukar urutannya.
+void ui_open_manual_grind(lv_event_t* e) {
+    navigate_to(UI_SCREEN_MANUAL_GRIND);
+}
+
+void ui_close_manual_grind(lv_event_t* e) {
+    navigate_to(UI_SCREEN_SETTINGS);
 }
 
 void ui_confirm_target(float target_g) {
@@ -212,6 +237,7 @@ void ui_tick(void) {
         case UI_SCREEN_IDLE:             ui_screen_idle_update(); break;
         case UI_SCREEN_PREDICTIVE_GRIND: ui_screen_predictive_grind_update(); break;
         case UI_SCREEN_PULSE_CORRECTION: ui_screen_pulse_correction_update(); break;
+        case UI_SCREEN_MANUAL_GRIND:     ui_screen_manual_grind_update(); break;
         default: break;  // Set Target, Done, Settings tidak perlu tick berkala
     }
 

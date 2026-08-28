@@ -33,6 +33,7 @@ typedef enum {
     UI_SCREEN_PULSE_CORRECTION,
     UI_SCREEN_DONE,
     UI_SCREEN_SETTINGS,
+    UI_SCREEN_MANUAL_GRIND,  // test motor/kalibrasi grind size, akses dari Settings (scroll)
 } ui_screen_id_t;
 
 // Data yang dibagi ke semua screen -- di-update oleh GrindController

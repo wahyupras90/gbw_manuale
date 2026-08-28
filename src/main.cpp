@@ -160,6 +160,96 @@ void grind_force_abort(void) {
     grindController.forceAbort(AbortReason::NONE);
 }
 
+// ============================================================
+// MANUAL GRIND (test motor / kalibrasi grind size) -- FITUR BARU,
+// permintaan eksplisit untuk kebutuhan kalibrasi burr gap sebelum
+// GBW otomatis siap dipakai (HX711 belum tentu terpasang/terkalibrasi
+// saat fitur ini dipakai). SENGAJA TERISOLASI TOTAL dari
+// GrindController/GrindState -- TIDAK PERNAH memanggil
+// grindController.startGrind()/forceAbort() ataupun transisi state
+// apa pun di GrindController. Berbicara LANGSUNG ke motorController
+// (GpioMotorController::start()/stop()), persis seperti test manual
+// GPIO6/relay.
+//
+// KENAPA TERISOLASI (bukan lewat GrindController): GrindController
+// didesain penuh di sekitar siklus grind-berbasis-berat (predictive
+// stop, pulse correction, dst) -- memaksakan "manual toggle motor"
+// masuk ke state machine itu akan menambah kompleksitas besar untuk
+// kasus penggunaan yang sebenarnya sederhana (nyalakan motor, matikan
+// motor). Berbagi objek motorController fisik yang SAMA (bukan
+// instance terpisah) tetap aman karena hanya SATU dari GrindController
+// atau manual grind yang bisa aktif dalam satu waktu -- lihat guard
+// di manual_grind_toggle() di bawah.
+//
+// SAFETY:
+// 1. DIBLOKIR kalau GrindController sedang aktif (state bukan
+//    IDLE/COMPLETE/ABORT) -- mencegah dua "pemilik" motor bentrok.
+// 2. Auto-stop TIMEOUT 20 detik (MANUAL_GRIND_TIMEOUT_MS) -- kalau
+//    operator lupa mematikan, motor berhenti sendiri. Dicek tiap
+//    loop() (lihat pemanggilan manual_grind_check_timeout() di
+//    loop()), BUKAN pakai delay()/timer terpisah -- konsisten dengan
+//    filosofi non-blocking di seluruh firmware ini.
+// ============================================================
+#define MANUAL_GRIND_TIMEOUT_MS 20000UL
+
+static bool s_manualGrindOn = false;
+static unsigned long s_manualGrindStartMs = 0;
+
+// Dipanggil dari screen_manual_grind.cpp (tombol toggle). Return
+// false kalau ditolak (GrindController sedang aktif) -- UI HARUS cek
+// return value ini sebelum asumsi motor benar-benar menyala, PERSIS
+// pola yang sama dengan bug ui_desync yang sudah diperbaiki di
+// grind_start() (lihat catatan lengkap di atas) -- supaya kesalahan
+// yang sama tidak terulang di fitur baru ini.
+bool manual_grind_toggle(void) {
+    if (s_manualGrindOn) {
+        motorController.stop();
+        s_manualGrindOn = false;
+        Serial.println("[MANUAL GRIND] Motor OFF (toggle manual).");
+        return true;
+    }
+
+    GrindState currentState = grindController.state();
+    if (currentState != GrindState::IDLE && currentState != GrindState::COMPLETE && currentState != GrindState::ABORT) {
+        Serial.println("[MANUAL GRIND] TOLAK -- sesi grind otomatis sedang aktif, tidak bisa nyalakan motor manual bersamaan.");
+        return false;
+    }
+
+    motorController.start();
+    s_manualGrindOn = true;
+    s_manualGrindStartMs = millis();
+    Serial.println("[MANUAL GRIND] Motor ON (toggle manual, auto-stop 20s).");
+    return true;
+}
+
+bool manual_grind_is_on(void) {
+    return s_manualGrindOn;
+}
+
+// Sisa waktu (detik, dibulatkan ke atas) sebelum auto-stop -- dipakai
+// screen_manual_grind.cpp untuk countdown visual. 0 kalau motor mati.
+int manual_grind_seconds_remaining(void) {
+    if (!s_manualGrindOn) return 0;
+    unsigned long elapsed = millis() - s_manualGrindStartMs;
+    if (elapsed >= MANUAL_GRIND_TIMEOUT_MS) return 0;
+    unsigned long remainingMs = MANUAL_GRIND_TIMEOUT_MS - elapsed;
+    return (int)((remainingMs + 999UL) / 1000UL);  // pembulatan ke atas
+}
+
+// Dipanggil TIAP loop() (lihat loop() di bawah) -- cek timeout, matikan
+// motor otomatis kalau operator lupa. TIDAK memanggil manual_grind_toggle()
+// (yang punya guard GrindController) karena di titik ini kita SUDAH TAHU
+// motor manual sedang ON (tidak butuh guard itu lagi), lebih langsung
+// panggil motorController.stop() sendiri.
+static void manual_grind_check_timeout() {
+    if (!s_manualGrindOn) return;
+    if (millis() - s_manualGrindStartMs >= MANUAL_GRIND_TIMEOUT_MS) {
+        motorController.stop();
+        s_manualGrindOn = false;
+        Serial.println("[MANUAL GRIND] Auto-stop, timeout 20s tercapai.");
+    }
+}
+
 // ------------------------------------------------------------
 // Sinkron ARAH SEBALIKNYA: g_ui_state (Settings screen, ditulis
 // operator lewat stepper +/- tolerance & max pulses) -> GrindController
@@ -463,6 +553,14 @@ void loop() {
     }
 
     latencyCalibrator.update();
+
+    // Manual grind (test motor/kalibrasi) -- cek timeout TIAP loop(),
+    // tempatnya di sini (dekat awal loop(), sebelum grindController.
+    // update()) supaya auto-stop tetap responsif walau bagian lain
+    // loop() sedang sibuk. Tidak mengganggu grindController.update()
+    // sama sekali -- manual grind sepenuhnya terisolasi, lihat catatan
+    // lengkap di manual_grind_toggle().
+    manual_grind_check_timeout();
     grindController.update();
 
     // OTA update() SETELAH kontrol grind -- prioritas urutan: kontrol

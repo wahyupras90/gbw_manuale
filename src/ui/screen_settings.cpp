@@ -337,6 +337,53 @@ static void create_update_row(lv_obj_t* parent, int y_offset) {
     lv_obj_center(check_label);
 }
 
+// ------------------------------------------------------------
+// Baris "Manual Grind" (BARU) -- pintu masuk ke layar test motor/
+// kalibrasi grind size (lihat screen_manual_grind.cpp). Row ini
+// SEDERHANA (cuma nama + tombol "OPEN"), TIDAK ada peringatan safety
+// di sini -- peringatan lengkap ada di layar tujuannya sendiri,
+// row ini cuma pintu masuk.
+// ------------------------------------------------------------
+extern void ui_open_manual_grind(lv_event_t* e);
+
+static void create_manual_grind_row(lv_obj_t* parent, int y_offset) {
+    lv_obj_t* row = lv_obj_create(parent);
+    lv_obj_set_size(row, SCREEN_WIDTH - 40, 66);
+    lv_obj_align(row, LV_ALIGN_TOP_MID, 0, y_offset);
+    lv_obj_set_style_bg_color(row, COLOR_BG_CARD, 0);
+    lv_obj_set_style_border_width(row, 1, 0);
+    lv_obj_set_style_border_color(row, lv_color_hex(0x2a2a2a), 0);
+    lv_obj_set_style_radius(row, 14, 0);
+    lv_obj_set_style_pad_all(row, 10, 0);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* name_label = lv_label_create(row);
+    lv_label_set_text(name_label, "Manual Grind");
+    lv_obj_set_style_text_font(name_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(name_label, COLOR_TEXT_PRIMARY, 0);
+    lv_obj_align(name_label, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    lv_obj_t* desc_label = lv_label_create(row);
+    lv_label_set_text(desc_label, "Test motor / calibrate grind size");
+    lv_obj_set_style_text_font(desc_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(desc_label, COLOR_TEXT_SECONDARY, 0);
+    lv_obj_align_to(desc_label, name_label, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 3);
+
+    lv_obj_t* open_btn = lv_btn_create(row);
+    lv_obj_set_size(open_btn, 70, 36);
+    lv_obj_set_style_radius(open_btn, 12, 0);
+    lv_obj_set_style_bg_color(open_btn, lv_color_hex(0x2a2412), 0);
+    lv_obj_set_style_border_width(open_btn, 1, 0);
+    lv_obj_set_style_border_color(open_btn, COLOR_ACCENT_DIM, 0);
+    lv_obj_align(open_btn, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_add_event_cb(open_btn, ui_open_manual_grind, LV_EVENT_CLICKED, NULL);
+    lv_obj_t* open_label = lv_label_create(open_btn);
+    lv_label_set_text(open_label, "OPEN");
+    lv_obj_set_style_text_font(open_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(open_label, COLOR_ACCENT, 0);
+    lv_obj_center(open_label);
+}
+
 lv_obj_t* ui_screen_settings_create(void) {
     s_screen = lv_obj_create(NULL);
     ui_apply_screen_bg(s_screen);
@@ -350,36 +397,61 @@ lv_obj_t* ui_screen_settings_create(void) {
     lv_obj_set_style_text_color(title, COLOR_ACCENT, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, STATUS_BAR_HEIGHT + 18);
 
+    // ------------------------------------------------------------
+    // CONTAINER SCROLL (BARU) -- permintaan eksplisit untuk muat baris
+    // "Manual Grind" tambahan tanpa row lain jadi mepet lagi (Settings
+    // sudah penuh: Tolerance+Max Pulses+Firmware Update+Save, sisa
+    // ruang cuma 14px sebelum perubahan ini -- dihitung eksplisit
+    // sebelum diputuskan perlu scroll, bukan tebakan).
+    //
+    // KENAPA CONTAINER TERPISAH (bukan langsung
+    // lv_obj_add_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE)): Save button
+    // di-align LV_ALIGN_BOTTOM_MID terhadap s_screen dengan asumsi
+    // posisinya TETAP/fixed (selalu terlihat, tidak ikut scroll status
+    // bar/title ikut ke atas kalau di-scroll naik). Kalau scroll
+    // dipasang langsung ke s_screen, Save/status bar/title akan IKUT
+    // ter-scroll bersama konten -- TIDAK diinginkan. Container ini
+    // membungkus HANYA baris-baris parameter (Tolerance/Max Pulses/
+    // Firmware Update/Manual Grind), sementara title/status bar/Save
+    // tetap child LANGSUNG s_screen (fixed, selalu terlihat).
+    lv_obj_t* scroll_area = lv_obj_create(s_screen);
+    lv_obj_set_size(scroll_area, SCREEN_WIDTH, 456 - (STATUS_BAR_HEIGHT + 36) - 96);  // 96 = ruang disisakan utk Save button + margin visual (dinaikkan dari 88 supaya scroll_area tidak berhimpitan pas dengan Save)
+    lv_obj_align(scroll_area, LV_ALIGN_TOP_MID, 0, STATUS_BAR_HEIGHT + 36);
+    lv_obj_set_style_bg_opa(scroll_area, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(scroll_area, 0, 0);
+    lv_obj_set_style_pad_all(scroll_area, 0, 0);
+    lv_obj_set_scroll_dir(scroll_area, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(scroll_area, LV_SCROLLBAR_MODE_AUTO);
+
     char tol_buf[8];
     snprintf(tol_buf, sizeof(tol_buf), "%.2f", g_ui_state.accuracy_tolerance_g);
-    // PERHITUNGAN OFFSET (v3 -- row_h dinaikkan 96->100 untuk menambah
-    // margin aman internal row dari 3px ke 7px, lihat catatan lengkap
-    // riwayat perbaikan di create_param_row()). title berakhir sekitar
-    // Y=18+20=38, row1 mulai Y=36.
-    create_param_row(s_screen, STATUS_BAR_HEIGHT + 36, "Tolerance", "Accuracy window (g)",
+    // SEMUA row sekarang jadi child scroll_area (BUKAN s_screen lagi)
+    // -- offset Y di bawah ini SEKARANG RELATIF terhadap scroll_area
+    // (yang sudah dimulai di STATUS_BAR_HEIGHT+36), BUKAN lagi relatif
+    // terhadap seluruh screen -- makanya offset row1 sekarang 0 (dulu
+    // STATUS_BAR_HEIGHT+36).
+    create_param_row(scroll_area, 0, "Tolerance", "Accuracy window (g)",
                       &s_tolerance_value, tolerance_minus_cb, tolerance_plus_cb, tol_buf);
 
     char pulse_buf[8];
     snprintf(pulse_buf, sizeof(pulse_buf), "%d", g_ui_state.max_pulse_attempts);
-    // row2 mulai SETELAH row1 selesai: 36 + tinggi_row(100) + gap(8) = 144.
-    create_param_row(s_screen, STATUS_BAR_HEIGHT + 144, "Max Pulses", "Pulse attempt limit",
+    create_param_row(scroll_area, 108, "Max Pulses", "Pulse attempt limit",
                       &s_max_pulses_value, max_pulses_minus_cb, max_pulses_plus_cb, pulse_buf);
 
     // Catatan: Coast Ratio & Flow Threshold SENGAJA TIDAK ADA di sini
     // -- lihat komentar header file ini untuk alasannya.
 
-    // Update row mulai SETELAH row2 selesai: 144 + 100 + gap(8) = 252.
-    // (252+58=310 relatif status bar, +22=332 absolut; Save mulai
-    // Y=368 absolut -- margin aman 36px, TIDAK overlap -- SAMA POSISI
-    // dengan bekas IP row, ukurannya identik 58px jadi tidak perlu
-    // hitung ulang.)
-    create_update_row(s_screen, STATUS_BAR_HEIGHT + 252);
+    create_update_row(scroll_area, 216);
+
+    create_manual_grind_row(scroll_area, 304);
 
     lv_obj_t* save_btn = lv_btn_create(s_screen);
     // KOREKSI (dilaporkan -- ukuran beda dari tombol lain): SEBELUMNYA
     // 200x48, sisa dari sebelum standarisasi v18 (lihat spec tunggal
     // 220x60 / offset -28 di komentar screen_idle.cpp start_btn) --
     // Settings terlewat saat standarisasi awal. Disamakan di sini.
+    // TETAP child s_screen (bukan scroll_area) -- lihat catatan
+    // container scroll di atas.
     lv_obj_set_size(save_btn, 220, 60);
     lv_obj_align(save_btn, LV_ALIGN_BOTTOM_MID, 0, -28);
     lv_obj_set_style_bg_color(save_btn, COLOR_ACCENT, 0);
