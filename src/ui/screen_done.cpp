@@ -56,7 +56,7 @@ static lv_obj_t* create_stat_item(lv_obj_t* parent, const char* label_text) {
 // hemat tinggi.
 static lv_obj_t* create_compact_stat_item(lv_obj_t* parent, const char* label_text) {
     lv_obj_t* col = lv_obj_create(parent);
-    lv_obj_set_size(col, 130, 26);
+    lv_obj_set_size(col, 116, 26);  // KOREKSI: 130px x 2 item = 260px MELEBIHI lebar stats_row2 (SCREEN_WIDTH-40=240px), menyebabkan overlap horizontal (ditemukan lewat foto hardware fisik). 116x2=232px, muat dengan gap kecil dari LV_FLEX_ALIGN_SPACE_EVENLY.
     lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(col, 0, 0);
     lv_obj_set_style_pad_all(col, 0, 0);
