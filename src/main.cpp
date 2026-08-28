@@ -203,7 +203,19 @@ bool grind_start(float target_g) {
         // rate lebih cepat (80Hz, ~12.5ms/sample), 3 sample TIDAK CUKUP
         // (span cuma ~25ms) -- kalau itu terjadi, naikkan jumlah sample
         // di sini atau tambah delay() eksplisit (lihat diskusi project).
-        for (int i = 0; i < 3 && hx711.isReady(); i++) {
+        // BUG DITEMUKAN & DIPERBAIKI (lewat testing fisik + layar Debug
+        // -- "Raw ADC belum ready" sering muncul): kondisi loop SEBELUMNYA
+        // `i < 3 && hx711.isReady()` -- kalau isReady() KEBETULAN false
+        // tepat di iterasi PERTAMA (wajar, HX711 10Hz berosilasi ready/
+        // tidak-ready terus), loop LANGSUNG BERHENTI TANPA SATU SAMPLE
+        // PUN masuk. Padahal readWeightGrams() di bawah SUDAH blocking-
+        // wait sendiri lewat wait_ready() di dalam HX711::read() (lihat
+        // library HX711, sudah diverifikasi) -- cek isReady() di kondisi
+        // for() ini JUSTRU kontraproduktif, mencegah loop mencoba sama
+        // sekali padahal readWeightGrams() cukup sabar menunggu sendiri.
+        // FIX: hapus syarat isReady() dari kondisi loop, biarkan
+        // readWeightGrams()/wait_ready() yang urus penantian.
+        for (int i = 0; i < 3; i++) {
             float freshWeight = hx711.readWeightGrams();
             if (!isnan(freshWeight)) {
                 weightFilter.pushRawSample(freshWeight, millis(), GRIND_FLOW_RATE_MAX_SANE_GPS);
