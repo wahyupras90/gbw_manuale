@@ -447,6 +447,7 @@ static void syncGrindControllerToUi() {
     g_ui_state.flow_rate_gps = grindController.currentFlowGps();
     g_ui_state.flow_start_confirmed = grindController.flowStartConfirmed();
     g_ui_state.grind_latency_ms = grindController.grindLatencyMs();
+    g_ui_state.motor_stop_target_weight_g = grindController.motorStopTargetWeightG();
     g_ui_state.pulse_count = grindController.pulseAttempts();
     // pulse_error_g -- selama PULSE_CORRECTION, "error saat ini" =
     // currentWeight - target (BUKAN finalErrorG(), yang baru valid

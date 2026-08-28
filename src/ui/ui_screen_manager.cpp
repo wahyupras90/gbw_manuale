@@ -1,6 +1,7 @@
 #include "ui_common.h"
 #include "../../include/config.h"
 #include "../../include/grind_controller.h"   // AbortReason -- lihat ui_show_grind_reject_reason() di screen_idle.cpp
+#include <math.h>   // NAN -- default motor_stop_target_weight_g di g_ui_state
 
 // Deklarasi create function tiap screen
 extern lv_obj_t* ui_screen_set_target_create(void);
@@ -35,6 +36,7 @@ ui_shared_state_t g_ui_state = {
     .flow_rate_gps = 0.0f,
     .flow_start_confirmed = false,
     .grind_latency_ms = 0,
+    .motor_stop_target_weight_g = 0.0f,  // konsisten dengan default motorStopTargetWeightG_ = 0.0f di GrindController (BUKAN NAN)
     .pulse_count = 0,
     .pulse_error_g = 0.0f,
     .grind_duration_ms = 0,

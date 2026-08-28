@@ -84,6 +84,7 @@ typedef struct {
     float flow_rate_gps;        // flow_now real-time, NAN kalau belum valid (lihat GrindController::currentFlowGps())
     bool  flow_start_confirmed; // dari GrindController::flowStartConfirmed() -- state WAIT_FLOW_START vs GRINDING
     unsigned long grind_latency_ms;  // dari GrindController::grindLatencyMs(), 0 kalau belum confirmed
+    float motor_stop_target_weight_g;  // dari GrindController::motorStopTargetWeightG() -- DITAMBAHKAN untuk kalibrasi GRIND_LATENCY_TO_COAST_RATIO tanpa Serial (layar Done). Default/belum-dihitung = 0.0f (BUKAN NAN -- lihat inisialisasi motorStopTargetWeightG_ di grind_controller.cpp), jadi UI tampilkan apa adanya, TIDAK perlu cek isnan().
     int   pulse_count;
     float pulse_error_g;
     unsigned long grind_duration_ms;

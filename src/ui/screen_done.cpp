@@ -11,6 +11,8 @@ static lv_obj_t* s_phase_pill = nullptr;
 static lv_obj_t* s_flow_stat = nullptr;
 static lv_obj_t* s_pulse_stat = nullptr;
 static lv_obj_t* s_duration_stat = nullptr;
+static lv_obj_t* s_latency_stat = nullptr;
+static lv_obj_t* s_stop_target_stat = nullptr;
 
 extern void ui_open_settings(lv_event_t* e);
 extern void ui_new_grind(lv_event_t* e);
@@ -43,6 +45,36 @@ static lv_obj_t* create_stat_item(lv_obj_t* parent, const char* label_text) {
     lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, 0);
 
     return col;
+}
+
+// Versi RINGKAS create_stat_item() untuk baris kedua (kalibrasi:
+// Latency/Stop Target) -- ruang vertikal cuma 30px tersisa (dihitung
+// eksplisit: stats_row pertama bottom ~338px, New Grind button top
+// ~368px), jadi font value diperkecil 14->12 dan tinggi kolom
+// diperkecil 36->26 supaya muat, label & value digabung SATU baris
+// horizontal (bukan tersusun atas-bawah seperti versi utama) untuk
+// hemat tinggi.
+static lv_obj_t* create_compact_stat_item(lv_obj_t* parent, const char* label_text) {
+    lv_obj_t* col = lv_obj_create(parent);
+    lv_obj_set_size(col, 130, 26);
+    lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(col, 0, 0);
+    lv_obj_set_style_pad_all(col, 0, 0);
+    lv_obj_clear_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* label = lv_label_create(col);
+    lv_label_set_text(label, label_text);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(label, COLOR_TEXT_SECONDARY, 0);
+    lv_obj_align(label, LV_ALIGN_LEFT_MID, 0, 0);
+
+    lv_obj_t* value = lv_label_create(col);
+    lv_label_set_text(value, "--");
+    lv_obj_set_style_text_font(value, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(value, COLOR_ACCENT_DIM, 0);
+    lv_obj_align(value, LV_ALIGN_RIGHT_MID, 0, 0);
+
+    return col;  // caller ambil child 1 (value label, index 1 karena label dibuat duluan) untuk update
 }
 
 lv_obj_t* ui_screen_done_create(void) {
@@ -122,6 +154,29 @@ lv_obj_t* ui_screen_done_create(void) {
     s_pulse_stat = create_stat_item(stats_row, "PULSES");
     s_duration_stat = create_stat_item(stats_row, "DURATION");
 
+    // Baris kedua -- Latency & Stop Target, DITAMBAHKAN untuk kalibrasi
+    // GRIND_LATENCY_TO_COAST_RATIO (permintaan eksplisit Wahyu setelah
+    // grind fisik pertama meleset -1.22g -- config.h mencatat rasio ini
+    // "TITIK AWAL eksperimen, WAJIB dikalibrasi ulang dari data GPIO+
+    // HX711" tapi sebelumnya CUMA bisa dilihat lewat Serial 'gs', tidak
+    // bisa diakses setelah case tertutup & power pindah ke buck 5V).
+    // Compact row (26px, lihat create_compact_stat_item()) supaya muat
+    // di celah 30px tersisa (stats_row pertama bottom ~338px, New Grind
+    // button top ~368px, dihitung eksplisit -- gap 2px ke stats_row,
+    // margin akhir cuma 2px ke tombol, MEPET tapi TIDAK overlap).
+    lv_obj_t* stats_row2 = lv_obj_create(s_screen);
+    lv_obj_set_size(stats_row2, SCREEN_WIDTH - 40, 26);
+    lv_obj_align_to(stats_row2, stats_row, LV_ALIGN_OUT_BOTTOM_MID, 0, 2);
+    lv_obj_set_style_bg_opa(stats_row2, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(stats_row2, 0, 0);
+    lv_obj_set_style_pad_all(stats_row2, 0, 0);
+    lv_obj_set_flex_flow(stats_row2, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(stats_row2, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_clear_flag(stats_row2, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_latency_stat = create_compact_stat_item(stats_row2, "LATENCY");
+    s_stop_target_stat = create_compact_stat_item(stats_row2, "STOP TGT");
+
     // Tombol New Grind
     // STANDARISASI (permintaan eksplisit -- lihat catatan lengkap di
     // screen_idle.cpp): 220x60, offset -28, font label diperbesar juga.
@@ -185,4 +240,14 @@ void ui_screen_done_update(void) {
 
     snprintf(buf, sizeof(buf), "%.1fs", g_ui_state.grind_duration_ms / 1000.0f);
     lv_label_set_text(lv_obj_get_child(s_duration_stat, 0), buf);
+
+    // Baris kalibrasi (Latency & Stop Target) -- lihat catatan lengkap
+    // di ui_screen_done_create(). child index 1 (bukan 0) karena
+    // create_compact_stat_item() bikin label DULU baru value (beda
+    // urutan dari create_stat_item() yang value dulu baru label).
+    snprintf(buf, sizeof(buf), "%lu ms", g_ui_state.grind_latency_ms);
+    lv_label_set_text(lv_obj_get_child(s_latency_stat, 1), buf);
+
+    snprintf(buf, sizeof(buf), "%.3f g", g_ui_state.motor_stop_target_weight_g);
+    lv_label_set_text(lv_obj_get_child(s_stop_target_stat, 1), buf);
 }
