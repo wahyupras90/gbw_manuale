@@ -263,14 +263,42 @@ AbortReason grind_last_abort_reason() {
 // dashboard harus bisa bedakan "belum ada data" dari "raw = 0").
 DebugSnapshot grind_get_debug_snapshot() {
     DebugSnapshot snap;
-    if (hx711.isReady()) {
+    // BUG DITEMUKAN & DIPERBAIKI (audit menyeluruh sebelum rilis, belum
+    // sempat terjadi di lapangan): SEBELUMNYA readRawAverage(1) selalu
+    // dipanggil di sini TANPA CEK STATUS GRIND. Kalau operator buka
+    // Debug (lewat gear icon di screen_predictive_grind.cpp/
+    // screen_pulse_correction.cpp, SUDAH ADA sejak sebelum layar Debug
+    // ini ditambahkan) PAS SAAT grind sedang berjalan, readRawAverage(1)
+    // yang BLOCKING (~100ms di HX711 10Hz, lihat catatan di sana)
+    // dipanggil tiap 300ms REFRESH DARI DEBUG SCREEN -- ini bisa
+    // menunda deteksi stopThreshold predictive-stop, MEMPERPARAH
+    // overshoot dose (bug yang justru baru diperbaiki di v1.0.13).
+    // FIX: skip readRawAverage() SAMA SEKALI kalau grind sedang aktif
+    // (state bukan IDLE/COMPLETE/ABORT) -- tampilkan rawAdc=-2 sebagai
+    // penanda "skip karena grind aktif" (beda dari -1="belum ready").
+    GrindState currentState = grindController.state();
+    bool grindActive = (currentState != GrindState::IDLE &&
+                         currentState != GrindState::COMPLETE &&
+                         currentState != GrindState::ABORT);
+    if (grindActive) {
+        snap.rawAdc = -2;
+    } else if (hx711.isReady()) {
         snap.rawAdc = hx711.readRawAverage(1);
     } else {
         snap.rawAdc = -1;
     }
     snap.offsetActive = hx711.currentOffset();
     snap.scaleActive = hx711.currentScale();
-    snap.weightGrams = hx711.readWeightGrams();
+    // BUG DITEMUKAN & DIPERBAIKI (audit menyeluruh): readWeightGrams()
+    // di bawah memanggil HX711::read() yang BLOCKING lewat wait_ready()
+    // internal (sama seperti readRawAverage(), lihat catatan di atas)
+    // -- SEBELUMNYA dipanggil TANPA cek isReady() dulu, jadi tetap bisa
+    // blocking (nge-lag Debug screen) walau grind TIDAK aktif, kalau
+    // HX711 kebetulan belum ready persis saat itu. FIX: skip juga
+    // (biarkan NAN) kalau HX711 belum isReady() -- konsisten dengan
+    // pola readRawAverage() di atas & loop() normal (main.cpp, cek
+    // isReady() dulu sebelum readWeightGrams()).
+    snap.weightGrams = (!grindActive && hx711.isReady()) ? hx711.readWeightGrams() : NAN;
     snap.hasSample = weightFilter.hasSample();
     FlowRateResult flow = weightFilter.computeFlowRate();
     snap.flowValid = flow.valid;

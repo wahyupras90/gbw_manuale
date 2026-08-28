@@ -198,7 +198,12 @@ void ui_show_grind_reject_reason(AbortReason reason) {
             lv_label_set_text(s_reject_label, "Berat belum stabil -- tunggu beberapa detik, coba lagi");
             break;
         default:
-            lv_label_set_text(s_reject_label, "Grind ditolak -- lihat Serial untuk detail");
+            // Seharusnya TIDAK PERNAH terjadi tepat setelah Start ditekan
+            // dari Idle (lihat komentar di ui_start_grind()) -- fallback
+            // aman kalau asumsi itu ternyata keliru. TIDAK menyebut
+            // Serial secara spesifik (mungkin tidak bisa diakses, lihat
+            // kasus Wahyu: power dari buck 5V, USB tidak tersambung).
+            lv_label_set_text(s_reject_label, "Grind ditolak -- coba lagi, atau restart kalau berulang");
             break;
     }
 }

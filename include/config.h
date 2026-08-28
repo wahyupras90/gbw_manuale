@@ -253,6 +253,33 @@
 // yang perlu direvisi di siklus kalibrasi yang sama.
 #define GRIND_MAX_PREDICTIVE_LATENCY_MS 1500UL
 
+// GRIND_FLOW_CALC_DELAY_MS -- DITAMBAHKAN (ditemukan lewat perbandingan
+// eksplisit dengan referensi upstream jaapp/smart-grind-by-weight,
+// weight_grind_strategy.cpp: run_predictive_phase()). Upstream
+// SENGAJA menunggu flow_rate_calc_window_ms=1500 SETELAH flow start
+// confirmed sebelum motor_stop_target_weight mulai diperbarui dari
+// flow rate real-time -- flow rate di awal grinding (motor baru
+// mulai, kopi baru mulai jatuh) belum "settle", masih ada transien.
+// Adaptasi project ini SEBELUMNYA TIDAK menyalin jeda ini (kemungkinan
+// terlewat, bukan keputusan sadar) -- motorStopTargetWeightG_ langsung
+// di-update tiap sample sejak flowStartConfirmed_, termasuk dari
+// sample-sample awal yang belum settle.
+//
+// KONFIRMASI EMPIRIS (testing fisik bareng Wahyu): grind target 5g
+// (durasi pendek, motor kemungkinan berhenti SEBELUM efek transien
+// awal signifikan) hasilnya akurat (+0.09g), TAPI grind target 18g
+// (dose harian Wahyu, durasi ~18s, CUKUP lama untuk transien awal ikut
+// memengaruhi kalkulasi) overshoot +0.45g. Pola ini konsisten dengan
+// hipotesis: motorStopTargetWeightG_ tercemar flow rate belum-settle
+// di awal sesi grind yang lebih panjang.
+//
+// Aman untuk grind pendek: kalau motor berhenti SEBELUM delay ini
+// terlewat, motorStopTargetWeightG_ TETAP terisi dari nilai AWAL
+// (dihitung saat flow pertama confirmed di evaluateFlowStartConfirmation(),
+// BUKAN 0/kosong) -- grind pendek tidak kehilangan prediksi, cuma tidak
+// sempat "upgrade" ke flow rate yang lebih settle.
+#define GRIND_FLOW_CALC_DELAY_MS         1500UL   // SAMA PERSIS dengan upstream flow_rate_calc_window_ms
+
 // Stall detection -- motor ON tapi flow tidak muncul (beans habis,
 // jalur macet, dst). Grace period dulu supaya spin-up motor tidak
 // salah kena deteksi stall.

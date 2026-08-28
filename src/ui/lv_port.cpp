@@ -134,6 +134,33 @@ static void disp_rounder_cb(lv_disp_drv_t* drv, lv_area_t* area) {
 }
 
 // ------------------------------------------------------------
+// PEMULIHAN BUS AGRESIF -- ditambahkan (permintaan eksplisit Wahyu,
+// setelah observasi lapangan: sentuhan layar sesekali berhenti
+// merespons sepenuhnya sampai perlu restart/cabut power manual,
+// terjadi "beberapa kali" dalam pemakaian normal, BUKAN hal baru
+// pasca firmware terbaru). Mitigasi endTransmission(true) yang sudah
+// ada di ft6146_read_touch() (lihat di bawah) mereset state PER-
+// TRANSAKSI, tapi issue #11374 (arduino-esp32, status "Needs
+// investigation" per Agustus 2026, BELUM ada fix resmi Espressif)
+// menunjukkan sesekali bus I2C bisa masuk state yang TIDAK pulih
+// hanya dari endTransmission() saja -- perlu Wire.begin() ulang
+// PENUH (dikonfirmasi sebagai mitigasi umum dari komunitas ESP32
+// untuk bug I2C serupa, walau disebut sendiri "bandaid fix" bukan
+// solusi akar).
+//
+// TIDAK menjamin 100% menghilangkan masalah (ini bug level driver,
+// bukan sesuatu yang bisa firmware kita perbaiki tuntas) -- tujuannya
+// membuat sistem PULIH SENDIRI dari kegagalan beruntun tanpa perlu
+// restart manual, bukan mencegah kegagalan itu sendiri terjadi.
+static uint8_t s_touchConsecutiveFailures = 0;
+#define TOUCH_I2C_RECOVERY_THRESHOLD 20  // ~20 polling gagal berturut-turut (di laju polling LVGL biasa beberapa puluh Hz, ini setara kurang dari 1 detik) sebelum Wire.begin() ulang dicoba -- cukup tinggi untuk tidak overreact ke 1-2 kegagalan sesaat yang wajar/self-recovering, cukup rendah untuk tidak biarkan operator menunggu lama saat benar-benar macet.
+
+static void touch_i2c_hard_recover(void) {
+    Wire.begin(TOUCH_PIN_SDA, TOUCH_PIN_SCL);  // parameter SAMA PERSIS dengan inisialisasi awal di lv_port_init()
+    s_touchConsecutiveFailures = 0;
+}
+
+// ------------------------------------------------------------
 // Baca register FT6146 lewat I2C -- helper kecil, blocking (durasi
 // I2C read singkat, tidak masalah dipanggil tiap poll LVGL indev).
 // Register map + clamp koordinat DISALIN PERSIS dari source resmi
@@ -157,18 +184,39 @@ static bool ft6146_read_touch(uint16_t* outX, uint16_t* outY) {
         // endTransmission() tanpa argumen (default true/sendStop)
         // memaksa bus kembali ke kondisi idle sebelum poll berikutnya.
         Wire.endTransmission(true);
+        // HITUNG kegagalan KOMUNIKASI I2C (BUKAN "tidak ada sentuhan"
+        // -- lihat catatan di touchCount==0 di bawah, itu keberhasilan
+        // komunikasi, bukan kegagalan) -- kalau beruntun melebihi
+        // threshold, coba pemulihan lebih agresif (lihat
+        // touch_i2c_hard_recover() di atas).
+        s_touchConsecutiveFailures++;
+        if (s_touchConsecutiveFailures >= TOUCH_I2C_RECOVERY_THRESHOLD) {
+            touch_i2c_hard_recover();
+        }
         return false;
     }
 
     if (Wire.requestFrom((int)FT6146_I2C_ADDR, 5) != 5) {
         Wire.endTransmission(true);  // sama alasan seperti di atas -- pulihkan bus sebelum poll berikutnya
+        s_touchConsecutiveFailures++;
+        if (s_touchConsecutiveFailures >= TOUCH_I2C_RECOVERY_THRESHOLD) {
+            touch_i2c_hard_recover();
+        }
         return false;
     }
+
+    // Komunikasi I2C BERHASIL sampai titik ini -- reset counter
+    // kegagalan (bus dalam kondisi sehat), TERLEPAS dari apakah ada
+    // titik sentuh terdeteksi atau tidak di bawah ini.
+    s_touchConsecutiveFailures = 0;
 
     uint8_t touchCount = Wire.read() & 0x0F;
     if (touchCount == 0) {
         // Baca sisa buffer supaya tidak mengotori transaksi berikutnya,
-        // walau tidak ada titik sentuh valid.
+        // walau tidak ada titik sentuh valid. INI BUKAN KEGAGALAN --
+        // komunikasi I2C sukses, cuma memang tidak ada sentuhan saat
+        // ini (kondisi NORMAL yang terjadi terus-menerus saat layar
+        // idle) -- TIDAK menambah s_touchConsecutiveFailures.
         for (int i = 0; i < 4; i++) Wire.read();
         return false;
     }

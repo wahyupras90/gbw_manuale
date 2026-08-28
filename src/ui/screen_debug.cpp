@@ -90,7 +90,12 @@ void ui_screen_debug_update(void) {
     DebugSnapshot snap = grind_get_debug_snapshot();
     char buf[32];
 
-    if (snap.rawAdc < 0) {
+    if (snap.rawAdc == -2) {
+        // Grind sedang aktif -- lihat catatan lengkap di
+        // grind_get_debug_snapshot() (main.cpp) kenapa raw dilewati.
+        lv_label_set_text(s_raw_value, "-- (grind aktif)");
+        lv_obj_set_style_text_color(s_raw_value, COLOR_ACCENT_DIM, 0);
+    } else if (snap.rawAdc < 0) {
         lv_label_set_text(s_raw_value, "-- (belum ready)");
         lv_obj_set_style_text_color(s_raw_value, COLOR_TEXT_SECONDARY, 0);
     } else {
@@ -105,7 +110,14 @@ void ui_screen_debug_update(void) {
     snprintf(buf, sizeof(buf), "%.2f", snap.scaleActive);
     lv_label_set_text(s_scale_value, buf);
 
-    if (isnan(snap.weightGrams)) {
+    if (snap.rawAdc == -2) {
+        // Konsisten dengan raw ADC di atas -- weightGrams SENGAJA
+        // NAN selama grind aktif (lihat grind_get_debug_snapshot()),
+        // tapi ini BUKAN masalah/warning, murni supaya Debug screen
+        // tidak mengganggu timing predictive-stop lewat blocking call.
+        lv_label_set_text(s_weight_value, "-- (grind aktif)");
+        lv_obj_set_style_text_color(s_weight_value, COLOR_ACCENT_DIM, 0);
+    } else if (isnan(snap.weightGrams)) {
         lv_label_set_text(s_weight_value, "-- g (NAN)");
         lv_obj_set_style_text_color(s_weight_value, COLOR_WARN, 0);
     } else {

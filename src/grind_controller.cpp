@@ -546,7 +546,18 @@ void GrindController::evaluateGrindProgress(unsigned long sampleTimestampMs) {
     // paling penting. KOREKSI: guard sekarang IDENTIK dengan guard
     // stall-timer/P95 di atas -- flow harus valid DAN di atas
     // threshold deteksi baru dipakai update model.
-    if (flow.valid && flow.flowRateGps >= GRIND_FLOW_DETECTION_THRESHOLD_GPS) {
+    //
+    // KOREKSI KEDUA (ditemukan lewat perbandingan eksplisit dengan
+    // upstream jaapp/smart-grind-by-weight, dikonfirmasi empiris lewat
+    // testing fisik -- overshoot +0.45g di grind 18g vs +0.09g di grind
+    // 5g): tambah guard waktu GRIND_FLOW_CALC_DELAY_MS (lihat config.h)
+    // -- upstream SENGAJA menunggu flow rate "settle" dulu sebelum
+    // dipakai model, bukan langsung dari sample pertama pasca-confirmed.
+    // TIDAK ADA sebelumnya di adaptasi project ini -- kemungkinan
+    // terlewat, bukan keputusan sadar (tidak ada catatan/diskusi soal
+    // ini di config.h/README sebelum penambahan ini).
+    if (flow.valid && flow.flowRateGps >= GRIND_FLOW_DETECTION_THRESHOLD_GPS &&
+        sampleTimestampMs >= motorStartedMs_ + grindLatencyMs_ + GRIND_FLOW_CALC_DELAY_MS) {
         // KONFIRMASI dari 2 audit independen: grindLatencyMs_ TIDAK
         // pernah di-clamp sebelumnya -- anomali (hopper hampir kosong,
         // biji tersangkut sesaat, dst, sampai batas realistis
