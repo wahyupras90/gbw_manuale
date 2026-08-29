@@ -118,8 +118,24 @@ static void navigate_to(ui_screen_id_t id) {
 // pembatalan sesi yang sedang aktif harus tetap eksplisit lewat
 // tombol Stop (stop_btn_cb -> grind_force_abort()), bukan gesture
 // yang gampang ke-trigger tanpa sengaja.
+// Counter total ui_go_home() terpanggil sejak boot -- BARU,
+// ditambahkan untuk diagnosis laporan "layar tiba-tiba lompat ke Set
+// Target SAAT GRINDING, sesekali/random, kedipan lebih cepat dari
+// reboot". Kalau counter ini naik BERBARENGAN dengan kejadian tsb
+// (dicek lewat Debug screen sesudahnya), itu mengarah ke phantom
+// gesture (LVGL salah mendeteksi LV_DIR_RIGHT dari noise touch),
+// BUKAN reboot -- lihat catatan lengkap di debug_snapshot.h. Dibaca
+// lewat ui_home_gesture_count() (dipanggil grind_get_debug_snapshot()
+// di main.cpp). RAM-only, cukup untuk diagnosis satu sesi pemakaian.
+static unsigned long s_homeGestureCount = 0;
+
 void ui_go_home(lv_event_t* e) {
+    s_homeGestureCount++;
     navigate_to(UI_SCREEN_SET_TARGET);
+}
+
+unsigned long ui_home_gesture_count(void) {
+    return s_homeGestureCount;
 }
 
 static void gesture_to_home_cb(lv_event_t* e) {

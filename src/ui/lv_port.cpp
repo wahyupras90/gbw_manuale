@@ -155,9 +155,25 @@ static void disp_rounder_cb(lv_disp_drv_t* drv, lv_area_t* area) {
 static uint8_t s_touchConsecutiveFailures = 0;
 #define TOUCH_I2C_RECOVERY_THRESHOLD 20  // ~20 polling gagal berturut-turut (di laju polling LVGL biasa beberapa puluh Hz, ini setara kurang dari 1 detik) sebelum Wire.begin() ulang dicoba -- cukup tinggi untuk tidak overreact ke 1-2 kegagalan sesaat yang wajar/self-recovering, cukup rendah untuk tidak biarkan operator menunggu lama saat benar-benar macet.
 
+// Counter total touch_i2c_hard_recover() terpanggil sejak boot --
+// BARU, ditambahkan untuk diagnosis laporan "layar tiba-tiba lompat
+// ke Set Target saat GRINDING, sesekali/random, kedipan lebih cepat
+// dari reboot". Kalau counter ini naik BERBARENGAN dengan kejadian
+// tsb (dicek lewat Debug screen sesudahnya), itu mengarah ke phantom
+// touch/noise I2C (kemungkinan dipicu motor menyala) sebagai akar
+// masalah, BUKAN reboot -- lihat catatan lengkap di debug_snapshot.h.
+// RAM-only (bukan NVS) -- cukup untuk diagnosis satu sesi pemakaian,
+// tidak perlu bertahan lintas reboot.
+static unsigned long s_touchRecoveryCount = 0;
+
 static void touch_i2c_hard_recover(void) {
     Wire.begin(TOUCH_PIN_SDA, TOUCH_PIN_SCL);  // parameter SAMA PERSIS dengan inisialisasi awal di lv_port_init()
     s_touchConsecutiveFailures = 0;
+    s_touchRecoveryCount++;
+}
+
+unsigned long lv_port_touch_recovery_count(void) {
+    return s_touchRecoveryCount;
 }
 
 // ------------------------------------------------------------

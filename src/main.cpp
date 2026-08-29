@@ -82,6 +82,7 @@
 // ============================================================
 
 #include <Arduino.h>
+#include <esp_system.h>  // esp_reset_reason() -- BARU, diagnostik reset-reason (lihat catatan lengkap di debug_snapshot.h/s_resetReasonStr di bawah). API dikonfirmasi dipakai persis sama di reference project jaapp/smart-grind-by-weight (src/main.cpp), bukan tebakan.
 #include "config.h"
 #include "weight_filter.h"
 #include "motor_controller.h"
@@ -110,6 +111,8 @@ extern void ui_tick(void);
 extern void ui_transition_to_pulse_correction(void);
 extern void ui_transition_to_done(void);
 extern ui_screen_id_t ui_get_current_screen(void);  // BARU -- lihat catatan bug di ui_screen_manager.cpp dan handleGrindStateTransitionForUi() di bawah
+extern unsigned long ui_home_gesture_count(void);  // BARU -- diagnostik lompat-ke-Set-Target, lihat debug_snapshot.h
+extern unsigned long lv_port_touch_recovery_count(void);  // BARU -- diagnostik sama, lihat lv_port.h
 
 static WeightFilter weightFilter;
 static GpioMotorController motorController(MOTOR_GPIO_PIN, MOTOR_GPIO_ACTIVE_HIGH);
@@ -125,6 +128,42 @@ static OtaManager otaManager;
 // tiap dipanggil -- kalau dipanggil berulang tiap loop, animasi akan
 // retrigger terus dan screen jadi tidak bisa dipakai/di-tap).
 static GrindState s_lastGrindState = GrindState::IDLE;
+
+// ------------------------------------------------------------
+// Reset-reason SAAT BOOT -- BARU, ditambahkan untuk diagnosis laporan
+// "layar tiba-tiba lompat ke Set Target SAAT GRINDING, sesekali/
+// random, kedipan lebih cepat dari reboot penuh". Dibaca SEKALI di
+// setup() (lihat pemanggilan esp_reset_reason() di sana), disimpan ke
+// string statis ini supaya Debug screen bisa menampilkannya kapan
+// saja tanpa perlu Serial -- reset-reason TETAP bertahan sampai
+// reboot BERIKUTNYA, jadi walau kedipan layar terasa cepat (bukan
+// reboot penuh yg lambat), field ini tetap berguna sebagai bukti
+// PENYINGKIR kalau reboot BUKAN penyebabnya (mis. kalau setelah
+// kejadian ternyata reason masih "POWERON" dari boot pertama, itu
+// artinya TIDAK ADA reboot baru terjadi -- penyebab kejadian ada di
+// tempat lain, lihat s_homeGestureCount/touch recovery counter).
+// Pola case switch DISALIN dari referensi upstream jaapp/
+// smart-grind-by-weight (src/main.cpp) -- API esp_reset_reason_t
+// dikonfirmasi dipakai sama persis di sana, bukan tebakan.
+static const char* s_resetReasonStr = "UNKNOWN";
+
+static void captureResetReason() {
+    esp_reset_reason_t rr = esp_reset_reason();
+    switch (rr) {
+        case ESP_RST_POWERON:   s_resetReasonStr = "POWERON"; break;
+        case ESP_RST_EXT:       s_resetReasonStr = "EXT (Reset Pin)"; break;
+        case ESP_RST_SW:        s_resetReasonStr = "SW (esp_restart)"; break;
+        case ESP_RST_PANIC:     s_resetReasonStr = "PANIC (Exception)"; break;
+        case ESP_RST_INT_WDT:   s_resetReasonStr = "INT_WDT"; break;
+        case ESP_RST_TASK_WDT:  s_resetReasonStr = "TASK_WDT"; break;
+        case ESP_RST_WDT:       s_resetReasonStr = "WDT"; break;
+        case ESP_RST_DEEPSLEEP: s_resetReasonStr = "DEEPSLEEP"; break;
+        case ESP_RST_BROWNOUT:  s_resetReasonStr = "BROWNOUT"; break;
+        case ESP_RST_SDIO:      s_resetReasonStr = "SDIO"; break;
+        default:                s_resetReasonStr = "UNKNOWN"; break;
+    }
+    Serial.printf("[BOOT] Reset reason: %s (%d)\n", s_resetReasonStr, (int)rr);
+}
 
 // ------------------------------------------------------------
 // Dipanggil ui_screen_manager.cpp (tombol Start di screen Idle) --
@@ -303,6 +342,17 @@ DebugSnapshot grind_get_debug_snapshot() {
     FlowRateResult flow = weightFilter.computeFlowRate();
     snap.flowValid = flow.valid;
     snap.flowRateGps = flow.valid ? flow.flowRateGps : NAN;
+
+    // BARU -- 3 field diagnostik, lihat catatan lengkap alasan
+    // penambahan di debug_snapshot.h. Ketiganya murni pembacaan
+    // counter/string sudah-ada, TIDAK ada blocking call/side-effect
+    // apa pun di sini -- aman dibaca kapan saja termasuk saat grind
+    // aktif (beda dari rawAdc/weightGrams di atas yang sengaja
+    // di-skip saat grindActive).
+    snap.resetReasonStr = s_resetReasonStr;
+    snap.homeGestureCount = ui_home_gesture_count();
+    snap.touchRecoveryCount = lv_port_touch_recovery_count();
+
     return snap;
 }
 
@@ -632,6 +682,7 @@ static void handleGrindCommand(const String& line) {
 void setup() {
     Serial.begin(115200);
     delay(1000);
+    captureResetReason();  // BARU -- paling awal, lihat catatan lengkap di captureResetReason()/s_resetReasonStr di atas
     Serial.println("\n=== GBW Firmware -- HARDWARE FINAL (GPIO + HX711 + WiFi OTA) ===");
     Serial.println("Kontrol grind: GPIO motor + polling HX711, TIDAK bergantung WiFi.");
     Serial.println("WiFi HANYA untuk OTA update firmware (lihat ota_manager.h).");

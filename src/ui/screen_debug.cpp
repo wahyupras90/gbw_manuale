@@ -2,6 +2,7 @@
 #include "../../include/debug_snapshot.h"
 #include <Arduino.h>   // millis() -- BUG DITEMUKAN & DIPERBAIKI LEWAT COMPILE AKTUAL: ui_common.h cuma include lvgl.h, tidak transitif ke Arduino.h
 #include <cstdio>
+#include <cstring>  // strcmp() -- BARU, dipakai bandingkan resetReasonStr di ui_screen_debug_update()
 #include <math.h>   // isnan()
 
 // ============================================================
@@ -31,6 +32,13 @@ static lv_obj_t* s_weight_value = nullptr;
 static lv_obj_t* s_has_sample_value = nullptr;
 static lv_obj_t* s_flow_valid_value = nullptr;
 static lv_obj_t* s_flow_rate_value = nullptr;
+
+// BARU -- section "DIAGNOSTIK SISTEM", lihat catatan lengkap alasan
+// penambahan (investigasi "layar tiba-tiba lompat ke Set Target saat
+// GRINDING") di debug_snapshot.h.
+static lv_obj_t* s_reset_reason_value = nullptr;
+static lv_obj_t* s_home_gesture_value = nullptr;
+static lv_obj_t* s_touch_recovery_value = nullptr;
 
 static unsigned long s_lastRefreshMs = 0;
 #define DEBUG_REFRESH_INTERVAL_MS 300  // disepakati eksplisit -- lihat catatan header file ini
@@ -140,6 +148,25 @@ void ui_screen_debug_update(void) {
         lv_label_set_text(s_flow_rate_value, buf);
         lv_obj_set_style_text_color(s_flow_rate_value, COLOR_TEXT_PRIMARY, 0);
     }
+
+    // BARU -- 3 field diagnostik, lihat catatan lengkap di
+    // debug_snapshot.h. Semua murni angka/string yang sudah dihitung
+    // di grind_get_debug_snapshot() (tidak ada blocking call), jadi
+    // aman ikut throttle 300ms yang sama seperti field lain di atas.
+    lv_label_set_text(s_reset_reason_value, snap.resetReasonStr);
+    // Warna WARN kalau reason BUKAN POWERON -- reboot tak terduga
+    // (brownout/watchdog/panic) yang perlu perhatian, dibedakan dari
+    // POWERON (boot normal/pertama kali colok listrik) yang wajar.
+    bool unexpectedReboot = (strcmp(snap.resetReasonStr, "POWERON") != 0);
+    lv_obj_set_style_text_color(s_reset_reason_value, unexpectedReboot ? COLOR_WARN : COLOR_TEXT_PRIMARY, 0);
+
+    snprintf(buf, sizeof(buf), "%lu", snap.homeGestureCount);
+    lv_label_set_text(s_home_gesture_value, buf);
+    lv_obj_set_style_text_color(s_home_gesture_value, snap.homeGestureCount > 0 ? COLOR_WARN : COLOR_TEXT_PRIMARY, 0);
+
+    snprintf(buf, sizeof(buf), "%lu", snap.touchRecoveryCount);
+    lv_label_set_text(s_touch_recovery_value, buf);
+    lv_obj_set_style_text_color(s_touch_recovery_value, snap.touchRecoveryCount > 0 ? COLOR_WARN : COLOR_TEXT_PRIMARY, 0);
 }
 
 lv_obj_t* ui_screen_debug_create(void) {
@@ -183,6 +210,18 @@ lv_obj_t* ui_screen_debug_create(void) {
     s_has_sample_value = create_debug_row(container, "hasSample()");
     s_flow_valid_value = create_debug_row(container, "Flow valid");
     s_flow_rate_value = create_debug_row(container, "Flow rate");
+
+    // BARU -- section diagnostik untuk investigasi "layar tiba-tiba
+    // lompat ke Set Target saat GRINDING, sesekali/random". Lihat
+    // catatan lengkap tiap field di debug_snapshot.h. Container induk
+    // sudah flexbox+scroll (lihat deklarasi container di atas), jadi
+    // menambah row di sini TIDAK perlu hitung ulang offset Y manual
+    // apa pun -- row baru otomatis mengalir ke bawah, scroll
+    // menyesuaikan sendiri.
+    create_section_label(container, "DIAGNOSTIK SISTEM");
+    s_reset_reason_value = create_debug_row(container, "Reset reason");
+    s_home_gesture_value = create_debug_row(container, "Home gesture #");
+    s_touch_recovery_value = create_debug_row(container, "Touch recovery #");
 
     lv_obj_t* back_btn = lv_btn_create(s_screen);
     lv_obj_set_size(back_btn, 220, 60);

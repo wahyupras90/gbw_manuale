@@ -136,3 +136,12 @@ void lv_port_init(void);
 // berlalu sejak panggilan terakhir untuk animasi/timer internal --
 // diimplementasikan pakai millis() delta, lihat lv_port.cpp).
 void lv_port_tick(void);
+
+// Counter touch_i2c_hard_recover() (Wire.begin() ulang penuh) sejak
+// boot -- BARU, ditambahkan untuk diagnosis laporan "layar tiba-tiba
+// lompat ke Set Target saat GRINDING, sesekali/random". Dibaca oleh
+// grind_get_debug_snapshot() (main.cpp) untuk ditampilkan di Debug
+// screen -- lihat catatan lengkap alasan penambahan ini di
+// debug_snapshot.h. Read-only, tidak mempengaruhi logic recovery itu
+// sendiri sama sekali.
+unsigned long lv_port_touch_recovery_count(void);
