@@ -91,15 +91,15 @@ Buck converter 5V              Modul step-down          Relay Module (part fisik
                                                    | +--->| V-  (return coil, jumper   |
                                                    |      |      GND-V- BOLEH tetap    |
                                                    |      |      tersambung)           |
-ESP32 3.3V --------------------------------------------->| VCC (suplai optocoupler,   |
+ESP32 3.3V ---------------------------------------------->| VCC (suplai optocoupler,   |
                                                    |      |      arus kecil ~5mA saja) |
-ESP32 GND -----------------------------------------+---->| GND (kontrol, common       |
+ESP32 GND ------------------------------------------+---->| GND (kontrol, common       |
                                                           |      ground WAJIB)         |
-ESP32 GPIO6 ---------------------------------------------->| IN  (sinyal kontrol)       |
-                                                           |                            |
-                                                           |  COM (kontak) ------------>|-------- Kabel microswitch #1
-                                                           |  NO  (kontak) ------------>|-------- Kabel microswitch #2
-                                                           +---------------------------+
+ESP32 GPIO6 --------------------------------------------->| IN  (sinyal kontrol)       |
+                                                          |                            |
+                                                          |  COM (kontak) ------------>|-------- Kabel microswitch #1
+                                                          |  NO  (kontak) ------------>|-------- Kabel microswitch #2
+                                                          +---------------------------+
 ```
 
 **Penjelasan:**
@@ -129,10 +129,10 @@ Load Cell (4-wire)              HX711                    ESP32-C6
 | Kuning       |--------->| GND (shield) |          |              |
 | (shield)     |          |              |          |              |
 +--------------+          |          VCC |<---------| 3.3V         |
-                           |          GND |<---------| GND          |
-                           |          DT  |--------->| GPIO2 (DOUT) |
-                           |          SCK |<---------| GPIO3 (SCK)  |
-                           +--------------+          +--------------+
+                          |          GND |<---------| GND          |
+                          |          DT  |--------->| GPIO2 (DOUT) |
+                          |          SCK |<---------| GPIO3 (SCK)  |
+                          +--------------+          +--------------+
 ```
 
 **Catatan:**

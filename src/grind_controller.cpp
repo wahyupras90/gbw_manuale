@@ -95,7 +95,9 @@ GrindController::GrindController(WeightFilter* weightFilter, MotorController* mo
       // Default dari config.h -- behavior lama (sebelum UI Settings
       // tersambung) tidak berubah kalau setter tidak pernah dipanggil.
       accuracyToleranceG_(GRIND_ACCURACY_TOLERANCE_G), maxPulseAttempts_(GRIND_MAX_PULSE_ATTEMPTS),
-      pendingAccuracyToleranceG_(GRIND_ACCURACY_TOLERANCE_G), pendingMaxPulseAttempts_(GRIND_MAX_PULSE_ATTEMPTS) {}
+      pendingAccuracyToleranceG_(GRIND_ACCURACY_TOLERANCE_G), pendingMaxPulseAttempts_(GRIND_MAX_PULSE_ATTEMPTS),
+      // BARU -- settlingTimeMs_, pola sama, default dari config.h.
+      settlingTimeMs_(GRIND_SCALE_PRECISION_SETTLING_TIME_MS), pendingSettlingTimeMs_(GRIND_SCALE_PRECISION_SETTLING_TIME_MS) {}
 
 // ------------------------------------------------------------
 // Getter kecil
@@ -230,6 +232,7 @@ bool GrindController::startGrind(float targetDoseG) {
     // sesi itu, baru berlaku di startGrind() berikutnya).
     accuracyToleranceG_ = pendingAccuracyToleranceG_;
     maxPulseAttempts_ = pendingMaxPulseAttempts_;
+    settlingTimeMs_ = pendingSettlingTimeMs_;  // BARU -- pola sama
 
     // Reset state model real-time untuk sesi baru.
     candidateFlowStartMs_ = 0;
@@ -392,7 +395,12 @@ void GrindController::onWeightSample(float rawWeightG, unsigned long sampleTimes
             evaluateGrindProgress(sampleTimestampMs);
             break;
         case GrindState::WAIT_SETTLE: {
-            if (millis() - motorStoppedMs_ < GRIND_SCALE_PRECISION_SETTLING_TIME_MS) {
+            // GANTI konstanta -> settlingTimeMs_ (BARU, bisa diatur
+            // lewat UI Settings -- lihat setSettlingTimeMs() di header).
+            // Default tetap GRIND_SCALE_PRECISION_SETTLING_TIME_MS
+            // (constructor), behavior lama tidak berubah kalau operator
+            // tidak pernah menyentuh setting ini.
+            if (millis() - motorStoppedMs_ < settlingTimeMs_) {
                 break;
             }
 
@@ -680,7 +688,10 @@ void GrindController::startPulse(unsigned long nowMs) {
 void GrindController::evaluatePulseProgress(unsigned long sampleTimestampMs) {
     (void)sampleTimestampMs;
 
-    if (millis() - motorStoppedMs_ < GRIND_SCALE_PRECISION_SETTLING_TIME_MS) {
+    // GANTI konstanta -> settlingTimeMs_ (BARU), SAMA variable dengan
+    // WAIT_SETTLE di atas -- sesuai kesepakatan: satu setting untuk
+    // kedua tempat ini.
+    if (millis() - motorStoppedMs_ < settlingTimeMs_) {
         return;
     }
 

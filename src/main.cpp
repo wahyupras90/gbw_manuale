@@ -486,6 +486,7 @@ static void manual_grind_check_timeout() {
 static void syncUiSettingsToGrindController() {
     grindController.setAccuracyToleranceG(g_ui_state.accuracy_tolerance_g);
     grindController.setMaxPulseAttempts(g_ui_state.max_pulse_attempts);
+    grindController.setSettlingTimeMs(g_ui_state.settle_time_ms);  // BARU -- pola sama
 }
 
 // ------------------------------------------------------------

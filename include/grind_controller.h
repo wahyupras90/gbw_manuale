@@ -217,6 +217,14 @@ public:
     // tidak berubah untuk siapa pun yang belum menyentuh Settings.
     void setAccuracyToleranceG(float toleranceG) { pendingAccuracyToleranceG_ = toleranceG; }
     void setMaxPulseAttempts(int maxPulses) { pendingMaxPulseAttempts_ = maxPulses; }
+    // BARU -- Settle Time, sesuai kesepakatan sebelumnya: SATU setting
+    // untuk GRIND_SCALE_PRECISION_SETTLING_TIME_MS, dipakai di 2 tempat
+    // (WAIT_SETTLE setelah predictive-stop, DAN settle antar pulsa di
+    // evaluatePulseProgress() -- lihat grind_controller.cpp). Pola
+    // snapshot-at-startGrind() SAMA PERSIS dengan tolerance/max pulses
+    // di atas -- alasan sama: mencegah perubahan Settings di tengah
+    // grinding mengubah timing sesi yang sedang berjalan.
+    void setSettlingTimeMs(unsigned long settlingMs) { pendingSettlingTimeMs_ = settlingMs; }
 
     // Getter parameter EFEKTIF (yang sedang/terakhir dipakai sesi
     // grind, BUKAN pending value dari setter di atas yang belum
@@ -224,6 +232,7 @@ public:
     // benar-benar aktif, bukan sekadar apa yang baru diketik operator.
     float accuracyToleranceG() const { return accuracyToleranceG_; }
     int maxPulseAttempts() const { return maxPulseAttempts_; }
+    unsigned long settlingTimeMs() const { return settlingTimeMs_; }  // BARU
 
     // ------------------------------------------------------------
     // Getter publik -- dibaca main.cpp untuk sync ke UI/command
@@ -334,6 +343,12 @@ private:
     int maxPulseAttempts_;
     float pendingAccuracyToleranceG_;
     int pendingMaxPulseAttempts_;
+    // BARU -- settlingTimeMs_/pendingSettlingTimeMs_, pola SAMA PERSIS
+    // dengan accuracyToleranceG_/maxPulseAttempts_ di atas. Dipakai di
+    // 2 tempat: WAIT_SETTLE (setelah predictive-stop) dan settle antar
+    // pulsa di evaluatePulseProgress() -- lihat grind_controller.cpp.
+    unsigned long settlingTimeMs_;
+    unsigned long pendingSettlingTimeMs_;
 
     void transitionTo(GrindState newState);
     void doAbort(AbortReason reason);

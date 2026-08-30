@@ -45,6 +45,7 @@ ui_shared_state_t g_ui_state = {
     .ble_connected = false,
     .accuracy_tolerance_g = GRIND_ACCURACY_TOLERANCE_G,
     .max_pulse_attempts = GRIND_MAX_PULSE_ATTEMPTS,
+    .settle_time_ms = GRIND_SCALE_PRECISION_SETTLING_TIME_MS,  // BARU
 };
 
 static ui_screen_id_t s_current_screen = UI_SCREEN_IDLE;

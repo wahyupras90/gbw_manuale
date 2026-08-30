@@ -5,19 +5,21 @@
 #include "../../include/version.h"  // FIRMWARE_VERSION -- DI-GENERATE OTOMATIS oleh generate_version.py tiap compile, JANGAN edit include/version.h manual
 
 // ============================================================
-// SETTINGS SCREEN -- SENGAJA HANYA 2 parameter: Tolerance & Max
-// Pulses, KEDUANYA MANUAL. Per keputusan eksplisit (lihat riwayat
-// diskusi): Coast Ratio dan Flow Threshold TIDAK ditampilkan di sini
-// sama sekali -- TIDAK ADA toggle Auto/Manual, TIDAK ADA persistence/
-// learning state/EMA/logic "learned" untuk kedua parameter itu.
-// Mereka baru disentuh UI setelah keputusan adaptive learning
-// dikunci terpisah. Jangan tambah field lain ke screen ini tanpa
-// keputusan eksplisit yang sama.
+// SETTINGS SCREEN -- 3 parameter MANUAL: Tolerance, Max Pulses, dan
+// Settle Time (BARU, ditambahkan lewat kesepakatan eksplisit sesi
+// ini -- lihat riwayat diskusi). Per keputusan eksplisit SEBELUMNYA
+// (tetap berlaku): Coast Ratio dan Flow Threshold TIDAK ditampilkan
+// di sini sama sekali -- TIDAK ADA toggle Auto/Manual, TIDAK ADA
+// persistence/learning state/EMA/logic "learned" untuk kedua
+// parameter itu. Mereka baru disentuh UI setelah keputusan adaptive
+// learning dikunci terpisah. Jangan tambah field lain ke screen ini
+// tanpa keputusan eksplisit yang sama.
 // ============================================================
 
 static lv_obj_t* s_screen = nullptr;
 static lv_obj_t* s_tolerance_value = nullptr;
 static lv_obj_t* s_max_pulses_value = nullptr;
+static lv_obj_t* s_settle_time_value = nullptr;  // BARU
 
 extern void ui_close_settings(lv_event_t* e);
 extern void ui_enable_swipe_home(lv_obj_t* screen);  // swipe kanan -> Set Target (Home)
@@ -30,6 +32,8 @@ static int s_tolerance_minus_repeat = 0;
 static int s_tolerance_plus_repeat = 0;
 static int s_max_pulses_minus_repeat = 0;
 static int s_max_pulses_plus_repeat = 0;
+static int s_settle_time_minus_repeat = 0;  // BARU
+static int s_settle_time_plus_repeat = 0;   // BARU
 
 static void tolerance_minus_cb(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
@@ -93,6 +97,51 @@ static void max_pulses_plus_cb(lv_event_t* e) {
     char buf[8];
     snprintf(buf, sizeof(buf), "%d", g_ui_state.max_pulse_attempts);
     lv_label_set_text(s_max_pulses_value, buf);
+}
+
+// BARU -- Settle Time (GRIND_SCALE_PRECISION_SETTLING_TIME_MS via
+// setSettlingTimeMs()). Range 200-2000ms, step 100ms -- disepakati
+// eksplisit sebelum coding (lihat riwayat diskusi). Pola SAMA PERSIS
+// dengan max_pulses_minus_cb/plus_cb di atas (step tetap 100, TIDAK
+// pakai ui_repeat_step_multiplier() untuk kelipatan step seperti
+// tolerance/max_pulses -- long-press tetap mempercepat lewat repeat
+// count, tapi step dasarnya tetap kelipatan 100 rapi, bukan makin
+// besar tidak beraturan, supaya nilai akhir selalu representable
+// persis sebagai kelipatan 100ms).
+static void settle_time_minus_cb(lv_event_t* e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_PRESSED) {
+        s_settle_time_minus_repeat = 0;
+        return;
+    }
+    if (code != LV_EVENT_CLICKED && code != LV_EVENT_LONG_PRESSED_REPEAT) return;
+    if (code == LV_EVENT_LONG_PRESSED_REPEAT) s_settle_time_minus_repeat++;
+    unsigned long step = 100UL * (unsigned long)ui_repeat_step_multiplier(s_settle_time_minus_repeat);
+    if (step > g_ui_state.settle_time_ms) {
+        g_ui_state.settle_time_ms = 200UL;  // clamp bawah, hindari underflow unsigned
+    } else {
+        g_ui_state.settle_time_ms -= step;
+        if (g_ui_state.settle_time_ms < 200UL) g_ui_state.settle_time_ms = 200UL;
+    }
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%lu", g_ui_state.settle_time_ms);
+    lv_label_set_text(s_settle_time_value, buf);
+}
+
+static void settle_time_plus_cb(lv_event_t* e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_PRESSED) {
+        s_settle_time_plus_repeat = 0;
+        return;
+    }
+    if (code != LV_EVENT_CLICKED && code != LV_EVENT_LONG_PRESSED_REPEAT) return;
+    if (code == LV_EVENT_LONG_PRESSED_REPEAT) s_settle_time_plus_repeat++;
+    unsigned long step = 100UL * (unsigned long)ui_repeat_step_multiplier(s_settle_time_plus_repeat);
+    g_ui_state.settle_time_ms += step;
+    if (g_ui_state.settle_time_ms > 2000UL) g_ui_state.settle_time_ms = 2000UL;  // batas atas disepakati
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%lu", g_ui_state.settle_time_ms);
+    lv_label_set_text(s_settle_time_value, buf);
 }
 
 static void save_cb(lv_event_t* e) {
@@ -348,7 +397,10 @@ extern void ui_open_manual_grind(lv_event_t* e);
 
 static void create_manual_grind_row(lv_obj_t* parent, int y_offset) {
     lv_obj_t* row = lv_obj_create(parent);
-    lv_obj_set_size(row, SCREEN_WIDTH - 40, 66);
+    // TINGGI DINAIKKAN 66 -> 80 (LIHAT CATATAN DI BAWAH soal desc_label
+    // wrap 2 baris -- kalau row ini ditinggikan lagi di masa depan,
+    // pad_all tetap 10, jadi content_h = row_h - 20).
+    lv_obj_set_size(row, SCREEN_WIDTH - 40, 80);
     lv_obj_align(row, LV_ALIGN_TOP_MID, 0, y_offset);
     lv_obj_set_style_bg_color(row, COLOR_BG_CARD, 0);
     lv_obj_set_style_border_width(row, 1, 0);
@@ -363,10 +415,26 @@ static void create_manual_grind_row(lv_obj_t* parent, int y_offset) {
     lv_obj_set_style_text_color(name_label, COLOR_TEXT_PRIMARY, 0);
     lv_obj_align(name_label, LV_ALIGN_TOP_LEFT, 0, 0);
 
+    // BUG DITEMUKAN LEWAT FOTO HARDWARE FISIK: desc_label sebelumnya
+    // TIDAK diberi lebar eksplisit (auto-size LVGL default) sehingga
+    // teks "Test motor / calibrate grind size" melebar penuh dan
+    // TERTINDIH tombol OPEN (open_btn digambar setelah desc_label,
+    // jadi menutupinya). Estimasi lebar-karakter yang dipakai untuk
+    // audit numerik SEBELUM ada foto ternyata meleset cukup jauh dari
+    // kondisi nyata font Montserrat di layar ini -- pelajaran yang
+    // SAMA seperti kasus offset X manual stepper param_row di atas:
+    // JANGAN andalkan estimasi piksel manual, pakai constraint LVGL
+    // eksplisit (set_width + long_mode wrap) yang otomatis
+    // menyesuaikan diri berapa pun panjang teksnya.
+    // Lebar: content_w row (SCREEN_WIDTH-40-2*10=220) dikurangi lebar
+    // tombol OPEN (70) dan margin aman (10) = 140px, dibulatkan ke
+    // bawah sedikit supaya ada jarak visual dari tombol.
     lv_obj_t* desc_label = lv_label_create(row);
     lv_label_set_text(desc_label, "Test motor / calibrate grind size");
     lv_obj_set_style_text_font(desc_label, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(desc_label, COLOR_TEXT_SECONDARY, 0);
+    lv_obj_set_width(desc_label, 132);
+    lv_label_set_long_mode(desc_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align_to(desc_label, name_label, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 3);
 
     lv_obj_t* open_btn = lv_btn_create(row);
@@ -401,7 +469,8 @@ extern void ui_open_debug(lv_event_t* e);
 
 static void create_debug_row(lv_obj_t* parent, int y_offset) {
     lv_obj_t* row = lv_obj_create(parent);
-    lv_obj_set_size(row, SCREEN_WIDTH - 40, 66);
+    // TINGGI DINAIKKAN 66 -> 80, SAMA ALASAN dengan create_manual_grind_row() di atas.
+    lv_obj_set_size(row, SCREEN_WIDTH - 40, 80);
     lv_obj_align(row, LV_ALIGN_TOP_MID, 0, y_offset);
     lv_obj_set_style_bg_color(row, COLOR_BG_CARD, 0);
     lv_obj_set_style_border_width(row, 1, 0);
@@ -416,10 +485,21 @@ static void create_debug_row(lv_obj_t* parent, int y_offset) {
     lv_obj_set_style_text_color(name_label, COLOR_TEXT_PRIMARY, 0);
     lv_obj_align(name_label, LV_ALIGN_TOP_LEFT, 0, 0);
 
+    // BUG SAMA seperti create_manual_grind_row() di atas -- lihat
+    // catatan lengkap di sana. Teks di sini SEDIKIT DIPERPENDEK
+    // ("HX711 raw / validasi grind tanpa Serial" -> "HX711 raw /
+    // validasi grind") dibanding versi lama, sebagai margin aman
+    // TAMBAHAN di atas wrap+set_width -- karena estimasi lebar
+    // karakter font Montserrat 12 SUDAH 2x terbukti meleset dari
+    // kondisi nyata di layar ini (bukti: bug overlap ini sendiri),
+    // lebih aman perpendek teks + pasang wrap, daripada cuma
+    // mengandalkan wrap sendirian untuk teks yang lebih panjang.
     lv_obj_t* desc_label = lv_label_create(row);
-    lv_label_set_text(desc_label, "HX711 raw / validasi grind tanpa Serial");
+    lv_label_set_text(desc_label, "HX711 raw / validasi grind");
     lv_obj_set_style_text_font(desc_label, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(desc_label, COLOR_TEXT_SECONDARY, 0);
+    lv_obj_set_width(desc_label, 132);
+    lv_label_set_long_mode(desc_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align_to(desc_label, name_label, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 3);
 
     lv_obj_t* open_btn = lv_btn_create(row);
@@ -491,14 +571,34 @@ lv_obj_t* ui_screen_settings_create(void) {
     create_param_row(scroll_area, 108, "Max Pulses", "Pulse attempt limit",
                       &s_max_pulses_value, max_pulses_minus_cb, max_pulses_plus_cb, pulse_buf);
 
+    // BARU -- Settle Time (GRIND_SCALE_PRECISION_SETTLING_TIME_MS),
+    // disepakati eksplisit sebelum coding (lihat riwayat diskusi).
+    // Row height 100, SAMA seperti Tolerance/Max Pulses (create_param_row
+    // selalu 100px) -- offset 216 = 108 (Max Pulses offset) + 100
+    // (tingginya) + 8 (gap konsisten semua row layar ini).
+    char settle_buf[8];
+    snprintf(settle_buf, sizeof(settle_buf), "%lu", g_ui_state.settle_time_ms);
+    create_param_row(scroll_area, 216, "Settle Time", "Scale settle (ms)",
+                      &s_settle_time_value, settle_time_minus_cb, settle_time_plus_cb, settle_buf);
+
     // Catatan: Coast Ratio & Flow Threshold SENGAJA TIDAK ADA di sini
     // -- lihat komentar header file ini untuk alasannya.
 
-    create_update_row(scroll_area, 216);
+    // OFFSET DIGESER: 216 -> 324 (Settle Time row baru di atas
+    // menambah 108px -- 100 tinggi + 8 gap -- ke semua row di
+    // bawahnya). Dihitung eksplisit, BUKAN ditebak.
+    create_update_row(scroll_area, 324);
 
-    create_manual_grind_row(scroll_area, 304);
+    // OFFSET DIGESER: 304 -> 412, alasan SAMA seperti create_update_row()
+    // di atas.
+    create_manual_grind_row(scroll_area, 412);
 
-    create_debug_row(scroll_area, 378);
+    // Y OFFSET SUDAH DIUBAH 2X: 378 -> 392 (Manual Grind naik tinggi
+    // 66->80, fix overlap desc_label/tombol OPEN) -> SEKARANG 392 -> 500
+    // (Settle Time row baru disisipkan di atas, +108px ke semua row di
+    // bawahnya: 100 tinggi + 8 gap). Dihitung eksplisit tiap kali,
+    // BUKAN ditebak -- gap 8px konsisten dipakai di SEMUA row layar ini.
+    create_debug_row(scroll_area, 500);
 
     lv_obj_t* save_btn = lv_btn_create(s_screen);
     // KOREKSI (dilaporkan -- ukuran beda dari tombol lain): SEBELUMNYA

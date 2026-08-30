@@ -103,6 +103,7 @@ typedef struct {
     // lihat catatan di atas soal Coast Ratio/Flow Threshold).
     float accuracy_tolerance_g;   // default dari GRIND_ACCURACY_TOLERANCE_G, bisa diubah user
     int   max_pulse_attempts;     // default dari GRIND_MAX_PULSE_ATTEMPTS, bisa diubah user
+    unsigned long settle_time_ms; // BARU -- default dari GRIND_SCALE_PRECISION_SETTLING_TIME_MS, bisa diubah user
 } ui_shared_state_t;
 
 extern ui_shared_state_t g_ui_state;
@@ -197,7 +198,19 @@ inline lv_obj_t* ui_create_status_bar(lv_obj_t* parent, void (*gear_cb)(lv_event
     }
     lv_obj_t* gear_label = lv_label_create(gear_btn);
     lv_label_set_text(gear_label, LV_SYMBOL_SETTINGS);
-    lv_obj_set_style_text_font(gear_label, &lv_font_montserrat_14, 0);  // DIPERBESAR seiring gear_btn (permintaan eksplisit, gear icon terlalu kecil)
+    // DIPERBESAR LEBIH LANJUT: 14 -> 16. Komentar lama di ui_create_status_bar()
+    // (bagian atas fungsi ini) soal "font cuma 12/14/32 tersedia" TERNYATA
+    // KELIRU/USANG -- font 16 JUGA di-enable di lv_conf.h (LV_FONT_
+    // MONTSERRAT_16 1), cuma belum pernah dipakai di file ini. Aman
+    // dipakai karena: (1) gear_btn 34x34 sudah lebih besar dari glyph
+    // font-16 (~18-20px), tidak overflow tombol; (2) posisi tetap
+    // lv_obj_center, otomatis mengikuti; (3) LV_SYMBOL_SETTINGS adalah
+    // simbol YANG SAMA yang sudah terbukti render normal di font 14
+    // sebelumnya (beda dari kasus LV_SYMBOL_BLUETOOTH dulu yang GANTI
+    // ke simbol lain yang ternyata tidak render di build LVGL ini) --
+    // menaikkan ukuran glyph yang sudah terbukti ada jauh lebih rendah
+    // risiko dibanding memakai simbol baru.
+    lv_obj_set_style_text_font(gear_label, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(gear_label, COLOR_TEXT_SECONDARY, 0);
     lv_obj_center(gear_label);
 
