@@ -104,6 +104,7 @@ typedef struct {
     float accuracy_tolerance_g;   // default dari GRIND_ACCURACY_TOLERANCE_G, bisa diubah user
     int   max_pulse_attempts;     // default dari GRIND_MAX_PULSE_ATTEMPTS, bisa diubah user
     unsigned long settle_time_ms; // BARU -- default dari GRIND_SCALE_PRECISION_SETTLING_TIME_MS, bisa diubah user
+    float coast_ratio;            // BARU -- default dari GRIND_LATENCY_TO_COAST_RATIO, bisa diubah user
 } ui_shared_state_t;
 
 extern ui_shared_state_t g_ui_state;

@@ -5,13 +5,16 @@
 #include "../../include/version.h"  // FIRMWARE_VERSION -- DI-GENERATE OTOMATIS oleh generate_version.py tiap compile, JANGAN edit include/version.h manual
 
 // ============================================================
-// SETTINGS SCREEN -- 3 parameter MANUAL: Tolerance, Max Pulses, dan
-// Settle Time (BARU, ditambahkan lewat kesepakatan eksplisit sesi
-// ini -- lihat riwayat diskusi). Per keputusan eksplisit SEBELUMNYA
-// (tetap berlaku): Coast Ratio dan Flow Threshold TIDAK ditampilkan
-// di sini sama sekali -- TIDAK ADA toggle Auto/Manual, TIDAK ADA
-// persistence/learning state/EMA/logic "learned" untuk kedua
-// parameter itu. Mereka baru disentuh UI setelah keputusan adaptive
+// SETTINGS SCREEN -- 4 parameter MANUAL: Tolerance, Max Pulses,
+// Settle Time, dan Coast Ratio (SEMUA ditambahkan lewat kesepakatan
+// eksplisit di sesi-sesi berbeda -- lihat riwayat diskusi). Coast
+// Ratio SEBELUMNYA dikecualikan secara eksplisit, TAPI KEPUTUSAN ITU
+// SUDAH BERUBAH setelah investigasi overshoot 18g menunjukkan
+// GRIND_LATENCY_TO_COAST_RATIO perlu dituning berulang tanpa compile
+// ulang tiap coba angka. Flow Threshold TETAP TIDAK ditampilkan
+// (keputusan ini MASIH BERLAKU, tidak berubah) -- TIDAK ADA toggle
+// Auto/Manual, TIDAK ADA persistence/learning state/EMA/logic
+// "learned" untuknya. Baru disentuh UI setelah keputusan adaptive
 // learning dikunci terpisah. Jangan tambah field lain ke screen ini
 // tanpa keputusan eksplisit yang sama.
 // ============================================================
@@ -20,6 +23,7 @@ static lv_obj_t* s_screen = nullptr;
 static lv_obj_t* s_tolerance_value = nullptr;
 static lv_obj_t* s_max_pulses_value = nullptr;
 static lv_obj_t* s_settle_time_value = nullptr;  // BARU
+static lv_obj_t* s_coast_ratio_value = nullptr;  // BARU
 
 extern void ui_close_settings(lv_event_t* e);
 extern void ui_enable_swipe_home(lv_obj_t* screen);  // swipe kanan -> Set Target (Home)
@@ -34,6 +38,8 @@ static int s_max_pulses_minus_repeat = 0;
 static int s_max_pulses_plus_repeat = 0;
 static int s_settle_time_minus_repeat = 0;  // BARU
 static int s_settle_time_plus_repeat = 0;   // BARU
+static int s_coast_ratio_minus_repeat = 0;  // BARU
+static int s_coast_ratio_plus_repeat = 0;   // BARU
 
 static void tolerance_minus_cb(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
@@ -142,6 +148,45 @@ static void settle_time_plus_cb(lv_event_t* e) {
     char buf[8];
     snprintf(buf, sizeof(buf), "%lu", g_ui_state.settle_time_ms);
     lv_label_set_text(s_settle_time_value, buf);
+}
+
+// BARU -- Coast Ratio (GRIND_LATENCY_TO_COAST_RATIO via
+// setCoastRatio()). Range 0.5-3.0, step 0.1 -- disepakati eksplisit
+// setelah investigasi overshoot 18g (lihat riwayat diskusi). Pola
+// SAMA PERSIS dengan tolerance_minus_cb/plus_cb (float dengan step
+// tetap, TIDAK pakai ui_repeat_step_multiplier() untuk kelipatan step
+// yang membesar, supaya nilai akhir selalu representable rapi sebagai
+// kelipatan 0.1 -- sama alasan dengan settle_time di atas).
+static void coast_ratio_minus_cb(lv_event_t* e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_PRESSED) {
+        s_coast_ratio_minus_repeat = 0;
+        return;
+    }
+    if (code != LV_EVENT_CLICKED && code != LV_EVENT_LONG_PRESSED_REPEAT) return;
+    if (code == LV_EVENT_LONG_PRESSED_REPEAT) s_coast_ratio_minus_repeat++;
+    float ratioStep = 0.1f * ui_repeat_step_multiplier(s_coast_ratio_minus_repeat);
+    g_ui_state.coast_ratio -= ratioStep;
+    if (g_ui_state.coast_ratio < 0.5f) g_ui_state.coast_ratio = 0.5f;  // batas bawah disepakati
+    char coastBuf[8];
+    snprintf(coastBuf, sizeof(coastBuf), "%.1f", g_ui_state.coast_ratio);
+    lv_label_set_text(s_coast_ratio_value, coastBuf);
+}
+
+static void coast_ratio_plus_cb(lv_event_t* e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_PRESSED) {
+        s_coast_ratio_plus_repeat = 0;
+        return;
+    }
+    if (code != LV_EVENT_CLICKED && code != LV_EVENT_LONG_PRESSED_REPEAT) return;
+    if (code == LV_EVENT_LONG_PRESSED_REPEAT) s_coast_ratio_plus_repeat++;
+    float ratioStep = 0.1f * ui_repeat_step_multiplier(s_coast_ratio_plus_repeat);
+    g_ui_state.coast_ratio += ratioStep;
+    if (g_ui_state.coast_ratio > 3.0f) g_ui_state.coast_ratio = 3.0f;  // batas atas disepakati
+    char coastBuf[8];
+    snprintf(coastBuf, sizeof(coastBuf), "%.1f", g_ui_state.coast_ratio);
+    lv_label_set_text(s_coast_ratio_value, coastBuf);
 }
 
 static void save_cb(lv_event_t* e) {
@@ -581,24 +626,32 @@ lv_obj_t* ui_screen_settings_create(void) {
     create_param_row(scroll_area, 216, "Settle Time", "Scale settle (ms)",
                       &s_settle_time_value, settle_time_minus_cb, settle_time_plus_cb, settle_buf);
 
-    // Catatan: Coast Ratio & Flow Threshold SENGAJA TIDAK ADA di sini
-    // -- lihat komentar header file ini untuk alasannya.
+    // BARU -- Coast Ratio (GRIND_LATENCY_TO_COAST_RATIO), disepakati
+    // eksplisit setelah investigasi overshoot 18g (lihat riwayat
+    // diskusi) -- KOMENTAR LAMA di sini sebelumnya bilang "Coast Ratio
+    // SENGAJA TIDAK ADA", itu keputusan LAMA yang SEKARANG SUDAH
+    // BERUBAH lewat kesepakatan eksplisit baru. Flow Threshold TETAP
+    // tidak ditampilkan (keputusan itu masih berlaku, TIDAK berubah).
+    // Offset 324 = 216 (Settle Time offset) + 100 (tingginya) + 8 (gap).
+    char coast_buf[8];
+    snprintf(coast_buf, sizeof(coast_buf), "%.1f", g_ui_state.coast_ratio);
+    create_param_row(scroll_area, 324, "Coast Ratio", "Latency-to-coast multiplier",
+                      &s_coast_ratio_value, coast_ratio_minus_cb, coast_ratio_plus_cb, coast_buf);
 
-    // OFFSET DIGESER: 216 -> 324 (Settle Time row baru di atas
+    // OFFSET DIGESER LAGI: 324 -> 432 (Coast Ratio row baru di atas
     // menambah 108px -- 100 tinggi + 8 gap -- ke semua row di
     // bawahnya). Dihitung eksplisit, BUKAN ditebak.
-    create_update_row(scroll_area, 324);
+    create_update_row(scroll_area, 432);
 
-    // OFFSET DIGESER: 304 -> 412, alasan SAMA seperti create_update_row()
-    // di atas.
-    create_manual_grind_row(scroll_area, 412);
+    // OFFSET DIGESER LAGI: 412 -> 520, alasan SAMA seperti
+    // create_update_row() di atas.
+    create_manual_grind_row(scroll_area, 520);
 
-    // Y OFFSET SUDAH DIUBAH 2X: 378 -> 392 (Manual Grind naik tinggi
-    // 66->80, fix overlap desc_label/tombol OPEN) -> SEKARANG 392 -> 500
-    // (Settle Time row baru disisipkan di atas, +108px ke semua row di
-    // bawahnya: 100 tinggi + 8 gap). Dihitung eksplisit tiap kali,
-    // BUKAN ditebak -- gap 8px konsisten dipakai di SEMUA row layar ini.
-    create_debug_row(scroll_area, 500);
+    // Y OFFSET SUDAH DIUBAH 3X sekarang: 378 -> 392 (fix overlap
+    // Manual Grind) -> 500 (Settle Time disisipkan) -> SEKARANG 500 ->
+    // 608 (Coast Ratio disisipkan, +108px lagi). Dihitung eksplisit
+    // tiap kali, BUKAN ditebak -- gap 8px konsisten di SEMUA row.
+    create_debug_row(scroll_area, 608);
 
     lv_obj_t* save_btn = lv_btn_create(s_screen);
     // KOREKSI (dilaporkan -- ukuran beda dari tombol lain): SEBELUMNYA

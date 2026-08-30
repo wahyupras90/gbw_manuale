@@ -97,7 +97,9 @@ GrindController::GrindController(WeightFilter* weightFilter, MotorController* mo
       accuracyToleranceG_(GRIND_ACCURACY_TOLERANCE_G), maxPulseAttempts_(GRIND_MAX_PULSE_ATTEMPTS),
       pendingAccuracyToleranceG_(GRIND_ACCURACY_TOLERANCE_G), pendingMaxPulseAttempts_(GRIND_MAX_PULSE_ATTEMPTS),
       // BARU -- settlingTimeMs_, pola sama, default dari config.h.
-      settlingTimeMs_(GRIND_SCALE_PRECISION_SETTLING_TIME_MS), pendingSettlingTimeMs_(GRIND_SCALE_PRECISION_SETTLING_TIME_MS) {}
+      settlingTimeMs_(GRIND_SCALE_PRECISION_SETTLING_TIME_MS), pendingSettlingTimeMs_(GRIND_SCALE_PRECISION_SETTLING_TIME_MS),
+      // BARU -- coastRatio_, pola sama, default dari config.h.
+      coastRatio_(GRIND_LATENCY_TO_COAST_RATIO), pendingCoastRatio_(GRIND_LATENCY_TO_COAST_RATIO) {}
 
 // ------------------------------------------------------------
 // Getter kecil
@@ -233,6 +235,7 @@ bool GrindController::startGrind(float targetDoseG) {
     accuracyToleranceG_ = pendingAccuracyToleranceG_;
     maxPulseAttempts_ = pendingMaxPulseAttempts_;
     settlingTimeMs_ = pendingSettlingTimeMs_;  // BARU -- pola sama
+    coastRatio_ = pendingCoastRatio_;  // BARU -- pola sama
 
     // Reset state model real-time untuk sesi baru.
     candidateFlowStartMs_ = 0;
@@ -242,9 +245,9 @@ bool GrindController::startGrind(float targetDoseG) {
     sessionPulseFlowGps_ = NAN;
     resetFlowHistory();
 
-    Serial.printf("[GRIND] Mulai -- dose=%.2fg tare=%.2fg target_absolut=%.2fg (ratio=%.2f, tolerance=%.3fg, max_pulses=%d)\n",
-                  targetDoseG_, startWeightG_, targetAbsoluteG_, (float)GRIND_LATENCY_TO_COAST_RATIO,
-                  accuracyToleranceG_, maxPulseAttempts_);
+    Serial.printf("[GRIND] Mulai -- dose=%.2fg tare=%.2fg target_absolut=%.2fg (ratio=%.2f, tolerance=%.3fg, max_pulses=%d, settle=%lums)\n",
+                  targetDoseG_, startWeightG_, targetAbsoluteG_, coastRatio_,
+                  accuracyToleranceG_, maxPulseAttempts_, settlingTimeMs_);
 
     transitionTo(GrindState::STARTING);
 
@@ -496,7 +499,9 @@ void GrindController::evaluateFlowStartConfirmation(unsigned long sampleTimestam
             // yang sama (clamp identik) di sini juga, grindLatencyMs_
             // itu sendiri TETAP tidak diubah (dilaporkan apa adanya).
             float effectiveLatencyMsInit = fminf(grindLatencyMs_, (float)GRIND_MAX_PREDICTIVE_LATENCY_MS);
-            motorStopTargetWeightG_ = flow.flowRateGps * (effectiveLatencyMsInit * (float)GRIND_LATENCY_TO_COAST_RATIO) / 1000.0f;
+            // GANTI konstanta -> coastRatio_ (BARU, bisa diatur lewat
+            // UI Settings -- lihat setCoastRatio() di header).
+            motorStopTargetWeightG_ = flow.flowRateGps * (effectiveLatencyMsInit * coastRatio_) / 1000.0f;
             Serial.printf("[GRIND] Flow start CONFIRMED (window %lums terpenuhi) -- grind_latency=%lums (effective=%.0fms utk model), flow=%.2fgps\n",
                           (unsigned long)GRIND_LATENCY_CONFIRMATION_MS, grindLatencyMs_, effectiveLatencyMsInit, flow.flowRateGps);
             transitionTo(GrindState::GRINDING);
@@ -579,7 +584,9 @@ void GrindController::evaluateGrindProgress(unsigned long sampleTimestampMs) {
         // TIDAK diubah/di-clamp (tetap dilaporkan apa adanya lewat
         // getter/Serial log untuk keperluan diagnostik/kalibrasi).
         float effectiveLatencyMs = fminf(grindLatencyMs_, (float)GRIND_MAX_PREDICTIVE_LATENCY_MS);
-        float coastTimeMs = effectiveLatencyMs * (float)GRIND_LATENCY_TO_COAST_RATIO;
+        // GANTI konstanta -> coastRatio_ (BARU), SAMA variable dengan
+        // evaluateFlowStartConfirmation() di atas.
+        float coastTimeMs = effectiveLatencyMs * coastRatio_;
         motorStopTargetWeightG_ = flow.flowRateGps * coastTimeMs / 1000.0f;
     }
 
@@ -602,9 +609,11 @@ void GrindController::evaluateGrindProgress(unsigned long sampleTimestampMs) {
         // supaya tidak ambigu yang mana yang menghasilkan
         // motor_stop_target di ujung baris.
         float effectiveLatencyMsLog = fminf(grindLatencyMs_, (float)GRIND_MAX_PREDICTIVE_LATENCY_MS);
+        // GANTI konstanta -> coastRatio_ di log ini juga, konsisten
+        // dengan nilai yang benar-benar dipakai model di atas.
         Serial.printf("[GRIND] Predictive stop -- berat %.2fg >= threshold %.2fg (grind_latency=%lums effective_latency=%.0fms coast=%.0fms motor_stop_target=%.2fg)\n",
                       currentWeight, stopThreshold, grindLatencyMs_, effectiveLatencyMsLog,
-                      effectiveLatencyMsLog * (float)GRIND_LATENCY_TO_COAST_RATIO, motorStopTargetWeightG_);
+                      effectiveLatencyMsLog * coastRatio_, motorStopTargetWeightG_);
 
         if (!stopMotorOrAbort()) {
             return;  // doAbort(MOTOR_OFF_FAILED) sudah dipanggil di dalam

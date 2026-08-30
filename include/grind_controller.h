@@ -225,6 +225,14 @@ public:
     // di atas -- alasan sama: mencegah perubahan Settings di tengah
     // grinding mengubah timing sesi yang sedang berjalan.
     void setSettlingTimeMs(unsigned long settlingMs) { pendingSettlingTimeMs_ = settlingMs; }
+    // BARU -- Coast Ratio (GRIND_LATENCY_TO_COAST_RATIO), disepakati
+    // eksplisit setelah investigasi overshoot 18g (lihat riwayat
+    // diskusi): model prediktif motorStopTargetWeightG_ = flow_rate *
+    // (latency_ms * ratio) -- ratio SEBELUMNYA konstanta tetap 1.0f di
+    // config.h, sekarang bisa dituning dari UI Settings tanpa compile
+    // ulang tiap coba angka. Pola snapshot-at-startGrind() SAMA
+    // PERSIS dengan parameter lain di atas.
+    void setCoastRatio(float ratio) { pendingCoastRatio_ = ratio; }
 
     // Getter parameter EFEKTIF (yang sedang/terakhir dipakai sesi
     // grind, BUKAN pending value dari setter di atas yang belum
@@ -233,6 +241,7 @@ public:
     float accuracyToleranceG() const { return accuracyToleranceG_; }
     int maxPulseAttempts() const { return maxPulseAttempts_; }
     unsigned long settlingTimeMs() const { return settlingTimeMs_; }  // BARU
+    float coastRatio() const { return coastRatio_; }  // BARU
 
     // ------------------------------------------------------------
     // Getter publik -- dibaca main.cpp untuk sync ke UI/command
@@ -349,6 +358,12 @@ private:
     // pulsa di evaluatePulseProgress() -- lihat grind_controller.cpp.
     unsigned long settlingTimeMs_;
     unsigned long pendingSettlingTimeMs_;
+    // BARU -- coastRatio_/pendingCoastRatio_, pola SAMA PERSIS. Dipakai
+    // di evaluateFlowStartConfirmation() (inisialisasi awal
+    // motorStopTargetWeightG_) DAN evaluateGrindProgress() (update
+    // real-time tiap sample) -- lihat grind_controller.cpp.
+    float coastRatio_;
+    float pendingCoastRatio_;
 
     void transitionTo(GrindState newState);
     void doAbort(AbortReason reason);

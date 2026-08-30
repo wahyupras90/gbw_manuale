@@ -319,6 +319,16 @@ DebugSnapshot grind_get_debug_snapshot() {
     bool grindActive = (currentState != GrindState::IDLE &&
                          currentState != GrindState::COMPLETE &&
                          currentState != GrindState::ABORT);
+    // CATATAN: Raw ADC (beda dari Berat (gram) di bawah, yang SUDAH
+    // difix) MASIH bisa kadang tampil "belum ready" -- rebutan siklus
+    // ready HX711 yang sama dengan loop() (lihat catatan lengkap di
+    // snap.weightGrams di bawah) TETAP berlaku di sini, karena Raw ADC
+    // TIDAK ADA cache-nya di weightFilter (weightFilter cuma simpan
+    // berat GRAM hasil kalibrasi, bukan raw ADC mentah). Raw ADC murni
+    // referensi diagnostik kalibrasi (bukan dipakai keputusan grind
+    // apa pun), jadi ini DITERIMA sebagai keterbatasan wajar -- kalau
+    // butuh Raw ADC yang lebih konsisten muncul, perlu tambah cache
+    // baru di HX711Reader/main.cpp loop() khusus untuk ini.
     if (grindActive) {
         snap.rawAdc = -2;
     } else if (hx711.isReady()) {
@@ -328,16 +338,35 @@ DebugSnapshot grind_get_debug_snapshot() {
     }
     snap.offsetActive = hx711.currentOffset();
     snap.scaleActive = hx711.currentScale();
-    // BUG DITEMUKAN & DIPERBAIKI (audit menyeluruh): readWeightGrams()
-    // di bawah memanggil HX711::read() yang BLOCKING lewat wait_ready()
-    // internal (sama seperti readRawAverage(), lihat catatan di atas)
-    // -- SEBELUMNYA dipanggil TANPA cek isReady() dulu, jadi tetap bisa
-    // blocking (nge-lag Debug screen) walau grind TIDAK aktif, kalau
-    // HX711 kebetulan belum ready persis saat itu. FIX: skip juga
-    // (biarkan NAN) kalau HX711 belum isReady() -- konsisten dengan
-    // pola readRawAverage() di atas & loop() normal (main.cpp, cek
-    // isReady() dulu sebelum readWeightGrams()).
-    snap.weightGrams = (!grindActive && hx711.isReady()) ? hx711.readWeightGrams() : NAN;
+    // BUG DITEMUKAN & DIPERBAIKI (dilaporkan Wahyu, dikonfirmasi lewat
+    // foto Debug screen + observasi "Flow valid tetap YA & bereaksi
+    // real-time ke berat" tapi "Berat (gram) SELALU NAN"): root cause
+    // BUKAN HX711 fisik rusak (grind selalu akurat, jadi HX711 pasti
+    // sehat) -- BUKAN JUGA cuma soal timing sesaat (dikonfirmasi
+    // bertahan lintas restart & tetap NAN walau ditunggu >10 detik).
+    //
+    // Akar masalah SEBENARNYA: hx711.readWeightGrams() di bawah cuma
+    // sukses kalau hx711.isReady() true PERSIS di momen dipanggil.
+    // Tapi loop() (lihat pemanggilan hx711.isReady() SEBELUM ui_tick()
+    // di loop() -- loop() baca HX711 duluan tiap iterasi) SUDAH
+    // "memakai" siklus ready HX711 itu SEBELUM ui_tick()/Debug screen
+    // ini sempat cek isReady()-nya sendiri DI ITERASI LOOP() YANG
+    // SAMA. HX711 baru saja dibaca -> otomatis "belum ready lagi"
+    // (butuh ~100ms untuk sample berikutnya, siklus 10Hz) -> Debug
+    // KALAH REBUTAN SIKLUS setiap kali, secara SISTEMATIS bukan
+    // kebetulan acak -- makanya SELALU NAN, bukan cuma sesekali.
+    //
+    // FIX: pakai weightFilter.latestWeight() -- CACHE hasil bacaan
+    // TERAKHIR yang SUDAH BERHASIL didapat loop() (weightFilter diisi
+    // loop() tiap kali pushRawSample() sukses), BUKAN coba baca ulang
+    // hx711 langsung dari Debug screen. Ini menghindari rebutan siklus
+    // sama sekali -- Debug cukup "meminjam" data yang sudah ada,
+    // konsisten dengan cara "Flow valid"/"hasSample()" di bawah SUDAH
+    // membaca weightFilter (dan itu TERBUKTI selalu benar).
+    // hasSample() tetap dicek dulu supaya tidak menampilkan 0.0f
+    // (default awal WeightFilter sebelum sample pertama) seolah itu
+    // bacaan asli.
+    snap.weightGrams = (!grindActive && weightFilter.hasSample()) ? weightFilter.latestWeight() : NAN;
     snap.hasSample = weightFilter.hasSample();
     FlowRateResult flow = weightFilter.computeFlowRate();
     snap.flowValid = flow.valid;
@@ -487,6 +516,7 @@ static void syncUiSettingsToGrindController() {
     grindController.setAccuracyToleranceG(g_ui_state.accuracy_tolerance_g);
     grindController.setMaxPulseAttempts(g_ui_state.max_pulse_attempts);
     grindController.setSettlingTimeMs(g_ui_state.settle_time_ms);  // BARU -- pola sama
+    grindController.setCoastRatio(g_ui_state.coast_ratio);  // BARU -- pola sama
 }
 
 // ------------------------------------------------------------
