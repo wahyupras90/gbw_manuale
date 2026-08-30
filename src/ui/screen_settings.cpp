@@ -434,7 +434,7 @@ static void create_manual_grind_row(lv_obj_t* parent, int y_offset) {
     lv_obj_set_style_text_font(desc_label, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(desc_label, COLOR_TEXT_SECONDARY, 0);
     lv_obj_set_width(desc_label, 132);
-    lv_label_set_long_mode(desc_label, LV_LABEL_LONG_MODE_WRAP);
+    lv_label_set_long_mode(desc_label, LV_LABEL_LONG_WRAP);
     lv_obj_align_to(desc_label, name_label, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 3);
 
     lv_obj_t* open_btn = lv_btn_create(row);
@@ -499,7 +499,7 @@ static void create_debug_row(lv_obj_t* parent, int y_offset) {
     lv_obj_set_style_text_font(desc_label, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(desc_label, COLOR_TEXT_SECONDARY, 0);
     lv_obj_set_width(desc_label, 132);
-    lv_label_set_long_mode(desc_label, LV_LABEL_LONG_MODE_WRAP);
+    lv_label_set_long_mode(desc_label, LV_LABEL_LONG_WRAP);
     lv_obj_align_to(desc_label, name_label, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 3);
 
     lv_obj_t* open_btn = lv_btn_create(row);
