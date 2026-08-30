@@ -27,6 +27,7 @@ static lv_obj_t* s_coast_ratio_value = nullptr;  // BARU
 
 extern void ui_close_settings(lv_event_t* e);
 extern void ui_enable_swipe_home(lv_obj_t* screen);  // swipe kanan -> Set Target (Home)
+extern void saveSettingsToNVS();  // BARU -- main.cpp, persist 4 setting UI ke flash lintas restart
 
 // Counter repeat per tombol (independen satu sama lain) -- reset ke
 // 0 tiap kali sesi tekan baru dimulai (LV_EVENT_PRESSED), naik tiap
@@ -191,9 +192,12 @@ static void coast_ratio_plus_cb(lv_event_t* e) {
 
 static void save_cb(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    // TODO: persist ke NVS/flash kalau memang mau bertahan lintas
-    // reboot -- BELUM diimplementasikan (di luar scope keputusan
-    // sekarang, cuma runtime in-memory dulu lewat g_ui_state).
+    // BARU -- persist ke NVS/flash SEKARANG SUDAH diimplementasikan
+    // (sebelumnya TODO/cuma runtime in-memory lewat g_ui_state) --
+    // disepakati eksplisit setelah kejadian nyata: Settle Time 700ms
+    // hilang begitu board restart. Lihat catatan lengkap di
+    // saveSettingsToNVS() (main.cpp).
+    saveSettingsToNVS();
     ui_close_settings(e);
 }
 

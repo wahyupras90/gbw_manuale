@@ -83,6 +83,7 @@
 
 #include <Arduino.h>
 #include <esp_system.h>  // esp_reset_reason() -- BARU, diagnostik reset-reason (lihat catatan lengkap di debug_snapshot.h/s_resetReasonStr di bawah). API dikonfirmasi dipakai persis sama di reference project jaapp/smart-grind-by-weight (src/main.cpp), bukan tebakan.
+#include <Preferences.h>  // BARU -- persist 4 setting UI (Tolerance/Max Pulses/Settle Time/Coast Ratio) lintas restart, disepakati eksplisit setelah kejadian Settle Time 700ms hilang gara-gara restart. Wrapper NVS bawaan Arduino-ESP32 core, TIDAK perlu tambah dependency baru. Partition scheme (min_spiffs.csv) SUDAH punya partisi nvs bawaan (0x5000 = 20KB) -- lebih dari cukup untuk 4 nilai kecil ini, TIDAK perlu ubah skema partisi.
 #include "config.h"
 #include "weight_filter.h"
 #include "motor_controller.h"
@@ -163,6 +164,70 @@ static void captureResetReason() {
         default:                s_resetReasonStr = "UNKNOWN"; break;
     }
     Serial.printf("[BOOT] Reset reason: %s (%d)\n", s_resetReasonStr, (int)rr);
+}
+
+// ------------------------------------------------------------
+// Persist 4 setting UI (Tolerance/Max Pulses/Settle Time/Coast Ratio)
+// ke NVS lewat Preferences -- BARU, disepakati eksplisit setelah
+// kejadian nyata: Settle Time diset 700ms lewat UI, hilang begitu
+// board restart (baik disengaja maupun akibat bug lompat-ke-Set-
+// Target yang kadang memicu reboot tak terduga -- lihat catatan
+// s_resetReasonStr di atas). SEBELUM ini, g_ui_state HANYA in-memory
+// runtime (lihat TODO lama di save_cb(), screen_settings.cpp).
+//
+// Namespace "gbw" (bukan default kosong) -- max 15 karakter per
+// Preferences API, sengaja pendek & spesifik supaya tidak bentrok
+// kalau kelak ada namespace NVS lain (mis. WiFi credentials).
+// Key JUGA max 15 karakter -- "tol_g"/"max_pulse"/"settle_ms"/
+// "coast_ratio" semua di bawah batas itu.
+static Preferences settingsPrefs;
+
+// Dipanggil SEKALI di setup(), SEBELUM apa pun yang membaca
+// g_ui_state.accuracy_tolerance_g/max_pulse_attempts/settle_time_ms/
+// coast_ratio (mis. syncUiSettingsToGrindController() pertama kali).
+// Kalau NVS belum pernah ditulis (board baru pertama kali pakai
+// fitur ini, atau namespace "gbw" belum ada), getFloat()/getInt()/
+// getULong() otomatis mengembalikan defaultValue yang diberikan --
+// dalam kasus ini, nilai config.h yang SAMA seperti yang SUDAH dipakai
+// g_ui_state saat ini (lihat designated initializer di
+// ui_screen_manager.cpp) -- jadi behavior lama TIDAK BERUBAH untuk
+// board yang belum pernah menekan tombol Save lewat firmware versi
+// ini.
+static void loadSettingsFromNVS() {
+    // true = read-only mode -- SENGAJA, load TIDAK PERNAH perlu
+    // menulis, membuka read-write tanpa keperluan menulis berisiko
+    // (walau kecil) korupsi entri kalau power hilang di tengah
+    // operasi baca yang salah dibuka mode tulis.
+    settingsPrefs.begin("gbw", true);
+    g_ui_state.accuracy_tolerance_g = settingsPrefs.getFloat("tol_g", GRIND_ACCURACY_TOLERANCE_G);
+    g_ui_state.max_pulse_attempts = settingsPrefs.getInt("max_pulse", GRIND_MAX_PULSE_ATTEMPTS);
+    g_ui_state.settle_time_ms = settingsPrefs.getULong("settle_ms", GRIND_SCALE_PRECISION_SETTLING_TIME_MS);
+    g_ui_state.coast_ratio = settingsPrefs.getFloat("coast_ratio", GRIND_LATENCY_TO_COAST_RATIO);
+    settingsPrefs.end();
+    Serial.printf("[NVS] Settings dimuat -- tolerance=%.3fg max_pulses=%d settle=%lums coast_ratio=%.2f\n",
+                  g_ui_state.accuracy_tolerance_g, g_ui_state.max_pulse_attempts,
+                  g_ui_state.settle_time_ms, g_ui_state.coast_ratio);
+}
+
+// Dipanggil dari save_cb() (screen_settings.cpp) SAAT TOMBOL SAVE
+// DITEKAN SAJA -- BUKAN tiap kali stepper +/- ditekan. NVS/flash
+// punya batas siklus tulis (wear leveling built-in Espressif
+// membantu, tapi tetap bukan alasan menulis berlebihan) -- long-press
+// stepper bisa memicu puluhan event LV_EVENT_LONG_PRESSED_REPEAT per
+// detik, menulis NVS di situ akan sia-sia dan berisiko mempercepat
+// keausan flash tanpa manfaat (operator belum tentu selesai
+// menentukan angka akhirnya).
+extern void saveSettingsToNVS() {
+    // false = read-write mode -- perlu untuk menulis.
+    settingsPrefs.begin("gbw", false);
+    settingsPrefs.putFloat("tol_g", g_ui_state.accuracy_tolerance_g);
+    settingsPrefs.putInt("max_pulse", g_ui_state.max_pulse_attempts);
+    settingsPrefs.putULong("settle_ms", g_ui_state.settle_time_ms);
+    settingsPrefs.putFloat("coast_ratio", g_ui_state.coast_ratio);
+    settingsPrefs.end();
+    Serial.printf("[NVS] Settings disimpan -- tolerance=%.3fg max_pulses=%d settle=%lums coast_ratio=%.2f\n",
+                  g_ui_state.accuracy_tolerance_g, g_ui_state.max_pulse_attempts,
+                  g_ui_state.settle_time_ms, g_ui_state.coast_ratio);
 }
 
 // ------------------------------------------------------------
@@ -714,6 +779,7 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
     captureResetReason();  // BARU -- paling awal, lihat catatan lengkap di captureResetReason()/s_resetReasonStr di atas
+    loadSettingsFromNVS();  // BARU -- muat 4 setting UI dari flash SEBELUM apa pun membaca g_ui_state, lihat catatan lengkap di loadSettingsFromNVS()
     Serial.println("\n=== GBW Firmware -- HARDWARE FINAL (GPIO + HX711 + WiFi OTA) ===");
     Serial.println("Kontrol grind: GPIO motor + polling HX711, TIDAK bergantung WiFi.");
     Serial.println("WiFi HANYA untuk OTA update firmware (lihat ota_manager.h).");
