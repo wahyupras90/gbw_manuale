@@ -137,6 +137,7 @@ enum class GrindState {
     WAIT_FLOW_START,  // motor ON, menunggu flow >= threshold TERKONFIRMASI selama GRIND_LATENCY_CONFIRMATION_MS -- TIDAK ADA predictive stop di state ini, hanya stall timeout yang berlaku (lihat catatan safety di bawah)
     GRINDING,         // flow sudah confirmed, predictive stop aktif (motor_stop_target_weight_g dihitung real-time)
     WAIT_SETTLE,
+    POST_PURGE,       // BARU -- getar buang sisa chute SETELAH settle, SEBELUM cek target/mulai pulse correction. Lihat catatan lengkap di config.h (GRIND_PURGE_PULSE_DURATION_MS dkk).
     PULSE_CORRECTION,
     COMPLETE,
     ABORT
@@ -233,6 +234,21 @@ public:
     // ulang tiap coba angka. Pola snapshot-at-startGrind() SAMA
     // PERSIS dengan parameter lain di atas.
     void setCoastRatio(float ratio) { pendingCoastRatio_ = ratio; }
+    // BARU -- Confirmation Window (GRIND_LATENCY_CONFIRMATION_MS),
+    // disepakati eksplisit setelah observasi: gumpalan sisa chute
+    // bisa terdorong jatuh di AWAL grinding, ikut lolos window
+    // konfirmasi 500ms yang lama seolah itu flow kopi sungguhan yang
+    // sudah stabil -- mencemari grind_latency_ms yang jadi basis
+    // Coast Ratio. Range 300-2000ms disepakati (batas atas jauh di
+    // bawah GRIND_STALL_TIMEOUT_MS 5000ms, supaya window ini naik
+    // tidak sampai bikin grind keburu STALL sebelum sempat confirmed).
+    void setConfirmationWindowMs(unsigned long windowMs) { pendingConfirmationWindowMs_ = windowMs; }
+    // BARU -- POST_PURGE enable/pulse count, disepakati eksplisit
+    // (lihat riwayat diskusi & catatan lengkap di config.h). Durasi/
+    // jeda TIAP pulsa TIDAK disetting (hardcode di config.h) --
+    // keputusan eksplisit untuk versi pertama fitur ini.
+    void setPostPurgeEnabled(bool enabled) { pendingPostPurgeEnabled_ = enabled; }
+    void setPostPurgePulseCount(int count) { pendingPostPurgePulseCount_ = count; }
 
     // Getter parameter EFEKTIF (yang sedang/terakhir dipakai sesi
     // grind, BUKAN pending value dari setter di atas yang belum
@@ -242,6 +258,9 @@ public:
     int maxPulseAttempts() const { return maxPulseAttempts_; }
     unsigned long settlingTimeMs() const { return settlingTimeMs_; }  // BARU
     float coastRatio() const { return coastRatio_; }  // BARU
+    unsigned long confirmationWindowMs() const { return confirmationWindowMs_; }  // BARU
+    bool postPurgeEnabled() const { return postPurgeEnabled_; }  // BARU
+    int postPurgePulseCount() const { return postPurgePulseCount_; }  // BARU
 
     // ------------------------------------------------------------
     // Getter publik -- dibaca main.cpp untuk sync ke UI/command
@@ -364,6 +383,21 @@ private:
     // real-time tiap sample) -- lihat grind_controller.cpp.
     float coastRatio_;
     float pendingCoastRatio_;
+    // BARU -- confirmationWindowMs_/pendingConfirmationWindowMs_, pola
+    // sama. Dipakai di evaluateFlowStartConfirmation() (lihat
+    // grind_controller.cpp).
+    unsigned long confirmationWindowMs_;
+    unsigned long pendingConfirmationWindowMs_;
+    // BARU -- postPurgeEnabled_/postPurgePulseCount_, pola sama
+    // (snapshot-at-startGrind). postPurgePulsesRemaining_ BUKAN
+    // setting -- ini counter RUNTIME (di-reset tiap kali masuk
+    // POST_PURGE, dikurangi tiap pulsa selesai, lihat
+    // grind_controller.cpp).
+    bool postPurgeEnabled_;
+    bool pendingPostPurgeEnabled_;
+    int postPurgePulseCount_;
+    int pendingPostPurgePulseCount_;
+    int postPurgePulsesRemaining_;
 
     void transitionTo(GrindState newState);
     void doAbort(AbortReason reason);
@@ -374,6 +408,11 @@ private:
     void evaluateGrindProgress(unsigned long sampleTimestampMs);
     void evaluatePulseProgress(unsigned long sampleTimestampMs);
     void startPulse(unsigned long nowMs);
+    // BARU -- POST_PURGE, lihat catatan lengkap di config.h
+    // (GRIND_PURGE_PULSE_DURATION_MS dkk) dan grind_controller.cpp.
+    void startPostPurgePulse();
+    void evaluatePostPurgeProgress(unsigned long sampleTimestampMs);
+    void finishPostPurgeAndDecide();
     void finishAsComplete();
 
     // Kirim motor OFF dengan retry sekali di level ini. CATATAN:

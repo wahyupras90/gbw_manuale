@@ -5,18 +5,18 @@
 #include "../../include/version.h"  // FIRMWARE_VERSION -- DI-GENERATE OTOMATIS oleh generate_version.py tiap compile, JANGAN edit include/version.h manual
 
 // ============================================================
-// SETTINGS SCREEN -- 4 parameter MANUAL: Tolerance, Max Pulses,
-// Settle Time, dan Coast Ratio (SEMUA ditambahkan lewat kesepakatan
-// eksplisit di sesi-sesi berbeda -- lihat riwayat diskusi). Coast
-// Ratio SEBELUMNYA dikecualikan secara eksplisit, TAPI KEPUTUSAN ITU
-// SUDAH BERUBAH setelah investigasi overshoot 18g menunjukkan
-// GRIND_LATENCY_TO_COAST_RATIO perlu dituning berulang tanpa compile
-// ulang tiap coba angka. Flow Threshold TETAP TIDAK ditampilkan
-// (keputusan ini MASIH BERLAKU, tidak berubah) -- TIDAK ADA toggle
-// Auto/Manual, TIDAK ADA persistence/learning state/EMA/logic
-// "learned" untuknya. Baru disentuh UI setelah keputusan adaptive
-// learning dikunci terpisah. Jangan tambah field lain ke screen ini
-// tanpa keputusan eksplisit yang sama.
+// SETTINGS SCREEN -- 7 parameter MANUAL: Tolerance, Max Pulses,
+// Settle Time, Coast Ratio, Confirmation Window, Post-Purge Enable,
+// dan Post-Purge Pulses (SEMUA ditambahkan lewat kesepakatan eksplisit
+// di sesi-sesi berbeda -- lihat riwayat diskusi). Post-Purge pulse
+// DURATION/GAP (per pulsa) SENGAJA hardcode di config.h, TIDAK
+// disetting -- keputusan eksplisit untuk versi pertama fitur ini.
+// Flow Threshold TETAP TIDAK ditampilkan (keputusan ini MASIH
+// BERLAKU, tidak berubah) -- TIDAK ADA toggle Auto/Manual, TIDAK ADA
+// persistence/learning state/EMA/logic "learned" untuknya. Baru
+// disentuh UI setelah keputusan adaptive learning dikunci terpisah.
+// Jangan tambah field lain ke screen ini tanpa keputusan eksplisit
+// yang sama.
 // ============================================================
 
 static lv_obj_t* s_screen = nullptr;
@@ -24,6 +24,19 @@ static lv_obj_t* s_tolerance_value = nullptr;
 static lv_obj_t* s_max_pulses_value = nullptr;
 static lv_obj_t* s_settle_time_value = nullptr;  // BARU
 static lv_obj_t* s_coast_ratio_value = nullptr;  // BARU
+static lv_obj_t* s_confirmation_window_value = nullptr;  // BARU
+static lv_obj_t* s_post_purge_toggle_btn = nullptr;  // BARU
+static lv_obj_t* s_post_purge_toggle_label = nullptr;  // BARU
+static lv_obj_t* s_post_purge_pulse_count_value = nullptr;  // BARU
+
+// FORWARD DECLARATION -- BUG DITEMUKAN SEBELUM COMPILE (audit urutan
+// definisi): post_purge_toggle_cb() (di bawah) memanggil
+// ui_update_toggle_visual(), tapi definisi PENUH fungsi itu ada JAUH
+// di bawah (dekat create_toggle_row()) -- C++ butuh deklarasi
+// terlihat SEBELUM titik pemakaian. Forward declare di sini (dekat
+// variabel global lain) supaya urutan compile benar TANPA perlu
+// menata ulang banyak kode yang sudah ada.
+static void ui_update_toggle_visual(lv_obj_t* btn, lv_obj_t* label, bool state);
 
 extern void ui_close_settings(lv_event_t* e);
 extern void ui_enable_swipe_home(lv_obj_t* screen);  // swipe kanan -> Set Target (Home)
@@ -41,6 +54,10 @@ static int s_settle_time_minus_repeat = 0;  // BARU
 static int s_settle_time_plus_repeat = 0;   // BARU
 static int s_coast_ratio_minus_repeat = 0;  // BARU
 static int s_coast_ratio_plus_repeat = 0;   // BARU
+static int s_confirmation_window_minus_repeat = 0;  // BARU
+static int s_confirmation_window_plus_repeat = 0;   // BARU
+static int s_post_purge_pulse_count_minus_repeat = 0;  // BARU
+static int s_post_purge_pulse_count_plus_repeat = 0;   // BARU
 
 static void tolerance_minus_cb(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
@@ -190,6 +207,94 @@ static void coast_ratio_plus_cb(lv_event_t* e) {
     lv_label_set_text(s_coast_ratio_value, coastBuf);
 }
 
+// BARU -- Confirmation Window (GRIND_LATENCY_CONFIRMATION_MS via
+// setConfirmationWindowMs()). Range 300-2000ms, step 100ms --
+// disepakati eksplisit setelah observasi gumpalan sisa chute bisa
+// lolos window konfirmasi lama (500ms) seolah flow kopi sungguhan
+// yang sudah stabil, mencemari grind_latency_ms basis Coast Ratio.
+// Pola SAMA PERSIS dengan settle_time_minus_cb/plus_cb (unsigned
+// long, step tetap kelipatan 100).
+static void confirmation_window_minus_cb(lv_event_t* e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_PRESSED) {
+        s_confirmation_window_minus_repeat = 0;
+        return;
+    }
+    if (code != LV_EVENT_CLICKED && code != LV_EVENT_LONG_PRESSED_REPEAT) return;
+    if (code == LV_EVENT_LONG_PRESSED_REPEAT) s_confirmation_window_minus_repeat++;
+    unsigned long step = 100UL * (unsigned long)ui_repeat_step_multiplier(s_confirmation_window_minus_repeat);
+    if (step > g_ui_state.confirmation_window_ms) {
+        g_ui_state.confirmation_window_ms = 300UL;  // clamp bawah, hindari underflow unsigned
+    } else {
+        g_ui_state.confirmation_window_ms -= step;
+        if (g_ui_state.confirmation_window_ms < 300UL) g_ui_state.confirmation_window_ms = 300UL;
+    }
+    char confirmBuf[8];
+    snprintf(confirmBuf, sizeof(confirmBuf), "%lu", g_ui_state.confirmation_window_ms);
+    lv_label_set_text(s_confirmation_window_value, confirmBuf);
+}
+
+static void confirmation_window_plus_cb(lv_event_t* e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_PRESSED) {
+        s_confirmation_window_plus_repeat = 0;
+        return;
+    }
+    if (code != LV_EVENT_CLICKED && code != LV_EVENT_LONG_PRESSED_REPEAT) return;
+    if (code == LV_EVENT_LONG_PRESSED_REPEAT) s_confirmation_window_plus_repeat++;
+    unsigned long step = 100UL * (unsigned long)ui_repeat_step_multiplier(s_confirmation_window_plus_repeat);
+    g_ui_state.confirmation_window_ms += step;
+    if (g_ui_state.confirmation_window_ms > 2000UL) g_ui_state.confirmation_window_ms = 2000UL;  // batas atas disepakati
+    char confirmBuf[8];
+    snprintf(confirmBuf, sizeof(confirmBuf), "%lu", g_ui_state.confirmation_window_ms);
+    lv_label_set_text(s_confirmation_window_value, confirmBuf);
+}
+
+// BARU -- POST_PURGE enable toggle. LV_EVENT_CLICKED saja (bukan
+// LV_EVENT_ALL seperti stepper -/+) -- tombol toggle simpel, tidak
+// butuh percepatan long-press seperti stepper angka.
+static void post_purge_toggle_cb(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    g_ui_state.post_purge_enabled = !g_ui_state.post_purge_enabled;
+    ui_update_toggle_visual(s_post_purge_toggle_btn, s_post_purge_toggle_label, g_ui_state.post_purge_enabled);
+}
+
+// BARU -- Post-Purge Pulses (jumlah pulsa purge per sesi). Range
+// 1-5, step 1 -- disepakati implisit dari GRIND_POST_PURGE_PULSE_COUNT_DEFAULT=2
+// sebagai titik tengah wajar. Durasi/jeda TIAP pulsa TIDAK disetting
+// (hardcode di config.h) -- lihat catatan lengkap di config.h.
+static void post_purge_pulse_count_minus_cb(lv_event_t* e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_PRESSED) {
+        s_post_purge_pulse_count_minus_repeat = 0;
+        return;
+    }
+    if (code != LV_EVENT_CLICKED && code != LV_EVENT_LONG_PRESSED_REPEAT) return;
+    if (code == LV_EVENT_LONG_PRESSED_REPEAT) s_post_purge_pulse_count_minus_repeat++;
+    int step = (int)ui_repeat_step_multiplier(s_post_purge_pulse_count_minus_repeat);
+    g_ui_state.post_purge_pulse_count -= step;
+    if (g_ui_state.post_purge_pulse_count < 1) g_ui_state.post_purge_pulse_count = 1;  // minimal 1 pulsa kalau enabled
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%d", g_ui_state.post_purge_pulse_count);
+    lv_label_set_text(s_post_purge_pulse_count_value, buf);
+}
+
+static void post_purge_pulse_count_plus_cb(lv_event_t* e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_PRESSED) {
+        s_post_purge_pulse_count_plus_repeat = 0;
+        return;
+    }
+    if (code != LV_EVENT_CLICKED && code != LV_EVENT_LONG_PRESSED_REPEAT) return;
+    if (code == LV_EVENT_LONG_PRESSED_REPEAT) s_post_purge_pulse_count_plus_repeat++;
+    int step = (int)ui_repeat_step_multiplier(s_post_purge_pulse_count_plus_repeat);
+    g_ui_state.post_purge_pulse_count += step;
+    if (g_ui_state.post_purge_pulse_count > 5) g_ui_state.post_purge_pulse_count = 5;  // batas atas wajar
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%d", g_ui_state.post_purge_pulse_count);
+    lv_label_set_text(s_post_purge_pulse_count_value, buf);
+}
+
 static void save_cb(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     // BARU -- persist ke NVS/flash SEKARANG SUDAH diimplementasikan
@@ -312,6 +417,85 @@ static void create_param_row(lv_obj_t* parent, int y_offset, const char* name, c
     lv_obj_set_style_text_font(plus_label, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(plus_label, COLOR_ACCENT, 0);
     lv_obj_center(plus_label);
+}
+
+// BARU -- row dengan TOMBOL TOGGLE (BUKAN lv_switch -- DICEK lv_conf.h,
+// LV_USE_SWITCH = 0/DISABLED di build LVGL ini, lv_switch_create()
+// akan GAGAL COMPILE kalau dipakai. lv_btn SUDAH PASTI tersedia
+// -- LV_USE_BTN = 1, dipakai di SELURUH UI firmware ini -- jadi
+// tombol yang berubah teks/warna sesuai state meniru switch secara
+// visual, TANPA risiko compile error atau nambah flash usage untuk
+// enable widget baru). Dipakai untuk POST_PURGE enable. Layout DITIRU
+// dari create_manual_grind_row()/create_debug_row() (name+desc di
+// kiri dengan set_width+wrap eksplisit, elemen interaktif sejajar
+// kanan) -- pola itu SUDAH TERBUKTI aman dari overlap.
+static void create_toggle_row(lv_obj_t* parent, int y_offset, const char* name, const char* desc,
+                                lv_obj_t** out_toggle_btn, lv_obj_t** out_toggle_label,
+                                lv_event_cb_t toggle_cb, bool initial_state) {
+    lv_obj_t* row = lv_obj_create(parent);
+    lv_obj_set_size(row, SCREEN_WIDTH - 40, 80);
+    lv_obj_align(row, LV_ALIGN_TOP_MID, 0, y_offset);
+    lv_obj_set_style_bg_color(row, COLOR_BG_CARD, 0);
+    lv_obj_set_style_border_width(row, 1, 0);
+    lv_obj_set_style_border_color(row, lv_color_hex(0x2a2a2a), 0);
+    lv_obj_set_style_radius(row, 14, 0);
+    lv_obj_set_style_pad_all(row, 10, 0);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* name_label = lv_label_create(row);
+    lv_label_set_text(name_label, name);
+    lv_obj_set_style_text_font(name_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(name_label, COLOR_TEXT_PRIMARY, 0);
+    lv_obj_align(name_label, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    // set_width+wrap eksplisit -- SAMA seperti fix overlap di
+    // create_manual_grind_row()/create_debug_row().
+    lv_obj_t* desc_label = lv_label_create(row);
+    lv_label_set_text(desc_label, desc);
+    lv_obj_set_style_text_font(desc_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(desc_label, COLOR_TEXT_SECONDARY, 0);
+    lv_obj_set_width(desc_label, 110);  // sedikit lebih sempit dari 132 (Manual Grind/Debug) -- tombol toggle lebih lebar dari tombol OPEN
+    lv_label_set_long_mode(desc_label, LV_LABEL_LONG_WRAP);
+    lv_obj_align_to(desc_label, name_label, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 3);
+
+    lv_obj_t* toggle_btn = lv_btn_create(row);
+    lv_obj_set_size(toggle_btn, 80, 36);
+    lv_obj_set_style_radius(toggle_btn, 12, 0);
+    lv_obj_align(toggle_btn, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_add_event_cb(toggle_btn, toggle_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t* toggle_label = lv_label_create(toggle_btn);
+    lv_obj_set_style_text_font(toggle_label, &lv_font_montserrat_12, 0);
+    lv_obj_center(toggle_label);
+
+    // Warna & teks awal sesuai initial_state -- factored ke fungsi
+    // shared ui_update_toggle_visual() (dipanggil di sini DAN di
+    // dalam toggle_cb setelah state berubah) supaya tidak duplikasi
+    // logic warna/teks di 2 tempat berbeda.
+    *out_toggle_btn = toggle_btn;
+    *out_toggle_label = toggle_label;
+}
+
+// Update visual tombol toggle (warna bg + teks ON/OFF) sesuai state
+// bool yang diberikan -- dipanggil dari create_toggle_row() (state
+// awal) DAN dari toggle_cb (setelah state berubah), supaya logic
+// warna/teks CUMA ada di SATU tempat (hindari 2 tempat yang bisa
+// diam-diam jadi tidak konsisten kalau salah satu diubah tapi yang
+// lain lupa).
+static void ui_update_toggle_visual(lv_obj_t* btn, lv_obj_t* label, bool state) {
+    if (state) {
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0x2a4a2a), 0);  // hijau gelap -- ON
+        lv_obj_set_style_border_width(btn, 1, 0);
+        lv_obj_set_style_border_color(btn, COLOR_SUCCESS, 0);
+        lv_label_set_text(label, "ON");
+        lv_obj_set_style_text_color(label, COLOR_SUCCESS, 0);
+    } else {
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0x2a2a2a), 0);  // abu netral -- OFF
+        lv_obj_set_style_border_width(btn, 1, 0);
+        lv_obj_set_style_border_color(btn, lv_color_hex(0x4a4a4a), 0);
+        lv_label_set_text(label, "OFF");
+        lv_obj_set_style_text_color(label, COLOR_TEXT_SECONDARY, 0);
+    }
 }
 
 // ------------------------------------------------------------
@@ -642,20 +826,49 @@ lv_obj_t* ui_screen_settings_create(void) {
     create_param_row(scroll_area, 324, "Coast Ratio", "Latency-to-coast multiplier",
                       &s_coast_ratio_value, coast_ratio_minus_cb, coast_ratio_plus_cb, coast_buf);
 
-    // OFFSET DIGESER LAGI: 324 -> 432 (Coast Ratio row baru di atas
-    // menambah 108px -- 100 tinggi + 8 gap -- ke semua row di
-    // bawahnya). Dihitung eksplisit, BUKAN ditebak.
-    create_update_row(scroll_area, 432);
+    // BARU -- Confirmation Window (GRIND_LATENCY_CONFIRMATION_MS),
+    // disepakati eksplisit setelah observasi gumpalan sisa chute bisa
+    // lolos window konfirmasi lama seolah flow sungguhan (lihat
+    // riwayat diskusi). Offset 432 = 324 (Coast Ratio offset) + 100
+    // (tingginya) + 8 (gap).
+    char confirm_buf[8];
+    snprintf(confirm_buf, sizeof(confirm_buf), "%lu", g_ui_state.confirmation_window_ms);
+    create_param_row(scroll_area, 432, "Confirm Window", "Flow confirmation time (ms)",
+                      &s_confirmation_window_value, confirmation_window_minus_cb, confirmation_window_plus_cb, confirm_buf);
 
-    // OFFSET DIGESER LAGI: 412 -> 520, alasan SAMA seperti
+    // BARU -- Post-Purge Enable (toggle) & Post-Purge Pulses (jumlah
+    // pulsa), disepakati eksplisit setelah observasi sisa chute
+    // terdorong jatuh selama grinding (lihat riwayat diskusi). Offset
+    // 540 = 432 (Confirm Window offset) + 100 (tingginya) + 8 (gap).
+    // Post Purge Enable row_h=80 (toggle row, SAMA seperti Manual
+    // Grind/Debug), BUKAN 100 (param row) -- lihat create_toggle_row().
+    create_toggle_row(scroll_area, 540, "Post-Purge", "Getar buang sisa chute",
+                       &s_post_purge_toggle_btn, &s_post_purge_toggle_label,
+                       post_purge_toggle_cb, g_ui_state.post_purge_enabled);
+    ui_update_toggle_visual(s_post_purge_toggle_btn, s_post_purge_toggle_label, g_ui_state.post_purge_enabled);
+
+    // Offset 628 = 540 (Post-Purge Enable offset) + 80 (tingginya,
+    // BUKAN 100 -- row ini toggle_row) + 8 (gap).
+    char purge_pulse_buf[8];
+    snprintf(purge_pulse_buf, sizeof(purge_pulse_buf), "%d", g_ui_state.post_purge_pulse_count);
+    create_param_row(scroll_area, 628, "Purge Pulses", "Jumlah pulsa getar",
+                      &s_post_purge_pulse_count_value, post_purge_pulse_count_minus_cb, post_purge_pulse_count_plus_cb, purge_pulse_buf);
+
+    // OFFSET DIGESER LAGI: 540 -> 736 (2 row Post-Purge baru di atas
+    // menambah 88px + 108px = 196px total ke semua row di bawahnya).
+    // Dihitung eksplisit, BUKAN ditebak.
+    create_update_row(scroll_area, 736);
+
+    // OFFSET DIGESER LAGI: 628 -> 824, alasan SAMA seperti
     // create_update_row() di atas.
-    create_manual_grind_row(scroll_area, 520);
+    create_manual_grind_row(scroll_area, 824);
 
-    // Y OFFSET SUDAH DIUBAH 3X sekarang: 378 -> 392 (fix overlap
-    // Manual Grind) -> 500 (Settle Time disisipkan) -> SEKARANG 500 ->
-    // 608 (Coast Ratio disisipkan, +108px lagi). Dihitung eksplisit
-    // tiap kali, BUKAN ditebak -- gap 8px konsisten di SEMUA row.
-    create_debug_row(scroll_area, 608);
+    // Y OFFSET SUDAH DIUBAH 5X sekarang: 378 -> 392 (fix overlap
+    // Manual Grind) -> 500 (Settle Time) -> 608 (Coast Ratio) -> 716
+    // (Confirmation Window) -> SEKARANG 716 -> 912 (2 row Post-Purge
+    // disisipkan, +196px lagi). Dihitung eksplisit tiap kali, BUKAN
+    // ditebak -- gap 8px konsisten di SEMUA row.
+    create_debug_row(scroll_area, 912);
 
     lv_obj_t* save_btn = lv_btn_create(s_screen);
     // KOREKSI (dilaporkan -- ukuran beda dari tombol lain): SEBELUMNYA

@@ -310,6 +310,34 @@
 #define GRIND_MAX_PULSE_DURATION_MS    250.0f
 #define GRIND_PULSE_P95_WINDOW_MS      2500UL   // window pengumpulan sample untuk hitung P95 flow sesi, persis meniru upstream
 
+// ------------------------------------------------------------
+// POST_PURGE -- BARU, disepakati eksplisit setelah observasi: sisa
+// kopi di chute bisa terdorong jatuh SELAMA proses grinding sendiri
+// (bukan cuma menempel diam nunggu sesi berikutnya). Alur: setelah
+// WAIT_SETTLE (predictive-stop + settle), SEBELUM cek target/mulai
+// pulse correction, motor digetarkan dengan pulsa PENDEK beberapa
+// kali (durasi TETAP, BUKAN proporsional error seperti pulse
+// correction biasa -- tujuannya cuma merontokkan sisa yang menempel,
+// bukan menambah dosis terarah), untuk merontokkan sisa yang mungkin
+// masih tertahan tepat sebelum motor berhenti. Berat DIBACA ULANG
+// setelah semua pulsa purge selesai -- keputusan target (sukses/
+// overshoot/undershoot -> pulse correction) BARU dilakukan setelah
+// itu, supaya angka yang dipakai keputusan sudah benar-benar final
+// (tidak akan berubah sendiri lagi kalau ditunggu/digetarkan).
+//
+// PRE_PURGE (versi "sebelum grind mulai") SEMPAT DIPERTIMBANGKAN
+// tapi DIHAPUS dari rencana -- sisa chute toh ikut terdorong jatuh
+// dengan sendirinya begitu GRINDING dimulai (jadi tidak perlu state
+// terpisah sebelum grinding), lihat riwayat diskusi.
+//
+// Durasi & jeda pulsa purge HARDCODE dulu (bukan setting UI) --
+// keputusan eksplisit untuk versi pertama fitur ini, supaya tidak
+// terlalu banyak parameter baru sekaligus. Kalau nanti terbukti perlu
+// disetel halus setelah dicoba, baru dipertimbangkan jadi setting.
+#define GRIND_PURGE_PULSE_DURATION_MS  80UL     // jauh lebih pendek dari pulsa koreksi normal (30-250ms) -- tujuannya cuma getar, bukan menggiling/menambah dosis signifikan
+#define GRIND_PURGE_PULSE_GAP_MS       150UL    // jeda antar pulsa purge, cukup untuk motor benar-benar berhenti sebelum nyala lagi
+#define GRIND_POST_PURGE_PULSE_COUNT_DEFAULT  2 // default jumlah pulsa purge per sesi -- BISA diatur lewat UI Settings (beda dari durasi/jeda di atas yang hardcode)
+
 // Safety timeout keseluruhan -- dihitung sejak command grind
 // DITERIMA (bukan sejak motor ON), mencakup seluruh alur termasuk
 // pulse correction. Nilai awal generous, dipersempit setelah lihat

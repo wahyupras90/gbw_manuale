@@ -47,6 +47,9 @@ ui_shared_state_t g_ui_state = {
     .max_pulse_attempts = GRIND_MAX_PULSE_ATTEMPTS,
     .settle_time_ms = GRIND_SCALE_PRECISION_SETTLING_TIME_MS,  // BARU
     .coast_ratio = GRIND_LATENCY_TO_COAST_RATIO,  // BARU
+    .confirmation_window_ms = GRIND_LATENCY_CONFIRMATION_MS,  // BARU
+    .post_purge_enabled = false,  // BARU
+    .post_purge_pulse_count = GRIND_POST_PURGE_PULSE_COUNT_DEFAULT,  // BARU
 };
 
 static ui_screen_id_t s_current_screen = UI_SCREEN_IDLE;

@@ -203,10 +203,14 @@ static void loadSettingsFromNVS() {
     g_ui_state.max_pulse_attempts = settingsPrefs.getInt("max_pulse", GRIND_MAX_PULSE_ATTEMPTS);
     g_ui_state.settle_time_ms = settingsPrefs.getULong("settle_ms", GRIND_SCALE_PRECISION_SETTLING_TIME_MS);
     g_ui_state.coast_ratio = settingsPrefs.getFloat("coast_ratio", GRIND_LATENCY_TO_COAST_RATIO);
+    g_ui_state.confirmation_window_ms = settingsPrefs.getULong("confirm_ms", GRIND_LATENCY_CONFIRMATION_MS);
+    g_ui_state.post_purge_enabled = settingsPrefs.getBool("purge_en", false);
+    g_ui_state.post_purge_pulse_count = settingsPrefs.getInt("purge_cnt", GRIND_POST_PURGE_PULSE_COUNT_DEFAULT);
     settingsPrefs.end();
-    Serial.printf("[NVS] Settings dimuat -- tolerance=%.3fg max_pulses=%d settle=%lums coast_ratio=%.2f\n",
+    Serial.printf("[NVS] Settings dimuat -- tolerance=%.3fg max_pulses=%d settle=%lums coast_ratio=%.2f confirm_window=%lums post_purge=%s(%d)\n",
                   g_ui_state.accuracy_tolerance_g, g_ui_state.max_pulse_attempts,
-                  g_ui_state.settle_time_ms, g_ui_state.coast_ratio);
+                  g_ui_state.settle_time_ms, g_ui_state.coast_ratio, g_ui_state.confirmation_window_ms,
+                  g_ui_state.post_purge_enabled ? "ON" : "OFF", g_ui_state.post_purge_pulse_count);
 }
 
 // Dipanggil dari save_cb() (screen_settings.cpp) SAAT TOMBOL SAVE
@@ -224,10 +228,14 @@ extern void saveSettingsToNVS() {
     settingsPrefs.putInt("max_pulse", g_ui_state.max_pulse_attempts);
     settingsPrefs.putULong("settle_ms", g_ui_state.settle_time_ms);
     settingsPrefs.putFloat("coast_ratio", g_ui_state.coast_ratio);
+    settingsPrefs.putULong("confirm_ms", g_ui_state.confirmation_window_ms);
+    settingsPrefs.putBool("purge_en", g_ui_state.post_purge_enabled);
+    settingsPrefs.putInt("purge_cnt", g_ui_state.post_purge_pulse_count);
     settingsPrefs.end();
-    Serial.printf("[NVS] Settings disimpan -- tolerance=%.3fg max_pulses=%d settle=%lums coast_ratio=%.2f\n",
+    Serial.printf("[NVS] Settings disimpan -- tolerance=%.3fg max_pulses=%d settle=%lums coast_ratio=%.2f confirm_window=%lums post_purge=%s(%d)\n",
                   g_ui_state.accuracy_tolerance_g, g_ui_state.max_pulse_attempts,
-                  g_ui_state.settle_time_ms, g_ui_state.coast_ratio);
+                  g_ui_state.settle_time_ms, g_ui_state.coast_ratio, g_ui_state.confirmation_window_ms,
+                  g_ui_state.post_purge_enabled ? "ON" : "OFF", g_ui_state.post_purge_pulse_count);
 }
 
 // ------------------------------------------------------------
@@ -582,6 +590,9 @@ static void syncUiSettingsToGrindController() {
     grindController.setMaxPulseAttempts(g_ui_state.max_pulse_attempts);
     grindController.setSettlingTimeMs(g_ui_state.settle_time_ms);  // BARU -- pola sama
     grindController.setCoastRatio(g_ui_state.coast_ratio);  // BARU -- pola sama
+    grindController.setConfirmationWindowMs(g_ui_state.confirmation_window_ms);  // BARU -- pola sama
+    grindController.setPostPurgeEnabled(g_ui_state.post_purge_enabled);  // BARU -- pola sama
+    grindController.setPostPurgePulseCount(g_ui_state.post_purge_pulse_count);  // BARU -- pola sama
 }
 
 // ------------------------------------------------------------
@@ -891,9 +902,12 @@ void loop() {
     // grind dulu (HX711 + calibrator + grindController), OTA
     // belakangan. allowOtaHandling = true HANYA kalau GrindController
     // sedang IDLE atau sudah selesai (COMPLETE/ABORT) -- SELAMA grind
-    // aktif berjalan (VALIDATING s/d PULSE_CORRECTION), OTA di-skip
-    // total pada iterasi ini (lihat komentar lengkap di ota_manager.h)
-    // supaya upload OTA tidak bisa mengganggu timing predictive-stop,
+    // aktif berjalan (VALIDATING s/d PULSE_CORRECTION, TERMASUK
+    // POST_PURGE yang BARU -- state ini juga bukan IDLE/COMPLETE/
+    // ABORT jadi otomatis ikut ter-cover oleh pengecekan negasi di
+    // bawah, TIDAK perlu ditambah eksplisit), OTA di-skip total pada
+    // iterasi ini (lihat komentar lengkap di ota_manager.h) supaya
+    // upload OTA tidak bisa mengganggu timing predictive-stop/purge,
     // bukan lagi cuma soal disiplin operator.
     bool grindIsIdle = (grindController.state() == GrindState::IDLE ||
                          grindController.state() == GrindState::COMPLETE ||

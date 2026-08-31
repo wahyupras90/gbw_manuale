@@ -105,6 +105,9 @@ typedef struct {
     int   max_pulse_attempts;     // default dari GRIND_MAX_PULSE_ATTEMPTS, bisa diubah user
     unsigned long settle_time_ms; // BARU -- default dari GRIND_SCALE_PRECISION_SETTLING_TIME_MS, bisa diubah user
     float coast_ratio;            // BARU -- default dari GRIND_LATENCY_TO_COAST_RATIO, bisa diubah user
+    unsigned long confirmation_window_ms;  // BARU -- default dari GRIND_LATENCY_CONFIRMATION_MS, bisa diubah user
+    bool post_purge_enabled;      // BARU -- default false, bisa diaktifkan lewat switch di Settings
+    int post_purge_pulse_count;   // BARU -- default dari GRIND_POST_PURGE_PULSE_COUNT_DEFAULT, bisa diubah user
 } ui_shared_state_t;
 
 extern ui_shared_state_t g_ui_state;
