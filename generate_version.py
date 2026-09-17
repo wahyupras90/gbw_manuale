@@ -47,7 +47,7 @@ PROJECT_DIR = env.get("PROJECT_DIR", os.getcwd())
 def get_git_version():
     try:
         result = subprocess.run(
-            ["git", "describe", "--tags", "--always", "--dirty"],
+            ["git", "describe", "--tags", "--always"],
             cwd=PROJECT_DIR,
             capture_output=True,
             text=True,

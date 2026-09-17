@@ -1,5 +1,7 @@
 #pragma once
 
+#include <math.h>
+
 // ============================================================
 // KONFIGURASI HARDWARE FINAL -- GPIO motor + HX711 load cell + WiFi
 // (OTA saja)
@@ -129,11 +131,41 @@
 // menemukan URL download dan melaporkan error (lihat github_ota.cpp).
 #define GITHUB_OTA_ASSET_NAME  "firmware.bin"
 
-// KALIBRASI HX711 -- SCALE hasil kalibrasi fisik (load cell terpasang
-// di case final), diverifikasi linear di 4 titik (0g, 122.1g, 232.6g,
-// 499.4g), error <0.1% pada titik cross-check independen. Diyakini
-// stabil jangka panjang (TIDAK seperti offset di bawah).
+// KALIBRASI HX711 -- SCALE MENTAH (DATAR/FLAT) hasil kalibrasi fisik
+// dengan load cell dalam posisi HORIZONTAL/DATAR, diverifikasi linear
+// di 4 titik (0g, 122.1g, 232.6g, 499.4g), error <0.1% pada titik
+// cross-check independen. Diyakini stabil jangka panjang (TIDAK
+// seperti offset di bawah).
 //
+// PENTING: load cell terpasang MIRING di case final (bukan datar),
+// sehingga bacaan mentah HX711 di sudut miring lebih KECIL dari berat
+// aktual (F_LC = W * cos(theta)). Karena HX711_CALIBRATION_SCALE_FLAT
+// di bawah dikalibrasi dalam kondisi DATAR, koreksi sudut WAJIB
+// diterapkan terpisah -- lihat LOAD_CELL_TILT_ANGLE_DEG di bawah.
+// Kalau suatu saat scale ini dikalibrasi ULANG langsung dalam kondisi
+// terpasang final (sudah miring), maka LOAD_CELL_TILT_ANGLE_DEG harus
+// diset ke 0.0f -- JANGAN mengoreksi sudut dua kali (double
+// correction), lihat catatan LOAD_CELL_TILT_ANGLE_DEG.
+#define HX711_CALIBRATION_SCALE_FLAT   2022.88f   // units per gram, load cell DATAR (tanpa koreksi sudut)
+
+// Sudut kemiringan load cell dari horizontal, dalam derajat.
+// UBAH ANGKA INI SAJA kalau sudut mounting berubah di masa depan --
+// tidak perlu kalibrasi ulang HX711_CALIBRATION_SCALE_FLAT dari nol.
+// Nilai 15.5 derajat berasal dari brief pengujian load cell miring
+// (9 sampel, rentang 21.2-452.9g, rasio bacaan/aktual ~0.964,
+// CF_angle = 1/cos(15.5deg) ~= 1.0377). Set ke 0.0f untuk menonaktifkan
+// koreksi (misal kalau HX711_CALIBRATION_SCALE_FLAT sudah dikalibrasi
+// ulang langsung dalam kondisi miring final).
+#define LOAD_CELL_TILT_ANGLE_DEG       15.5f
+
+// Faktor koreksi dan scale efektif, dihitung sekali dari dua nilai di
+// atas -- JANGAN edit langsung, ubah FLAT atau ANGLE_DEG saja. "const"
+// (bukan "constexpr") sengaja dipakai karena cosf() tidak dijamin
+// constexpr-safe di semua toolchain GCC/ESP32 -- nilainya tetap
+// dihitung satu kali saat static-init, sebelum setup() berjalan.
+static const float LOAD_CELL_TILT_CORRECTION = 1.0f / cosf(LOAD_CELL_TILT_ANGLE_DEG * (float)M_PI / 180.0f);
+static const float HX711_CALIBRATION_SCALE_CORRECTED = HX711_CALIBRATION_SCALE_FLAT * LOAD_CELL_TILT_CORRECTION;
+
 // OFFSET SENGAJA tetap 0L secara permanen -- JANGAN diisi angka tetap
 // dari kalibrasi manapun. Raw baseline (nol) terbukti drift signifikan
 // (>900 unit antar sesi, ~0.45g setara pada scale di atas -- 4.5x
@@ -147,7 +179,7 @@
 // -- boleh tetap 0L, TIDAK memengaruhi akurasi grind karena selalu
 // ditimpa auto-tare sebelum startGrind() membaca berat apa pun.
 #define HX711_CALIBRATION_OFFSET       0L
-#define HX711_CALIBRATION_SCALE        2022.88f   // units per gram -- hasil kalibrasi fisik, lihat catatan di atas
+#define HX711_CALIBRATION_SCALE        HX711_CALIBRATION_SCALE_CORRECTED   // units per gram, SUDAH termasuk koreksi sudut -- lihat catatan di atas
 
 // Ambang batas berat ABSOLUT (bukan dose) untuk anggap portafilter/
 // wadah "terpasang" di layar Idle -- MURNI indikator visual (warna
