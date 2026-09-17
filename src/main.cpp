@@ -440,20 +440,30 @@ DebugSnapshot grind_get_debug_snapshot() {
     bool grindActive = (currentState != GrindState::IDLE &&
                          currentState != GrindState::COMPLETE &&
                          currentState != GrindState::ABORT);
-    // CATATAN: Raw ADC (beda dari Berat (gram) di bawah, yang SUDAH
-    // difix) MASIH bisa kadang tampil "belum ready" -- rebutan siklus
-    // ready HX711 yang sama dengan loop() (lihat catatan lengkap di
-    // snap.weightGrams di bawah) TETAP berlaku di sini, karena Raw ADC
-    // TIDAK ADA cache-nya di weightFilter (weightFilter cuma simpan
-    // berat GRAM hasil kalibrasi, bukan raw ADC mentah). Raw ADC murni
-    // referensi diagnostik kalibrasi (bukan dipakai keputusan grind
-    // apa pun), jadi ini DITERIMA sebagai keterbatasan wajar -- kalau
-    // butuh Raw ADC yang lebih konsisten muncul, perlu tambah cache
-    // baru di HX711Reader/main.cpp loop() khusus untuk ini.
+    // BUG LAMA DITEMUKAN & DIPERBAIKI (dikonfirmasi lewat laporan:
+    // "Raw ADC SELALU belum ready, bahkan dari kondisi awal setelah
+    // restart, sudah begitu sejak v1.0.16"): root cause SAMA PERSIS
+    // dengan bug "Berat (gram) selalu NAN" yang sudah diperbaiki
+    // sebelumnya -- rebutan siklus ready HX711 dengan loop() (loop()
+    // baca HX711 duluan tiap iterasi, konsumsi siklus ready-nya,
+    // SEBELUM Raw ADC sempat cek isReady()-nya sendiri di iterasi
+    // SAMA). Field ini TIDAK PERNAH ikut diperbaiki dulu (fix lama
+    // cuma menyentuh "Berat (gram)") karena waktu itu tidak ada field
+    // lain yang bergantung padanya -- SEKARANG jadi masalah nyata
+    // karena mode timbangan (weightGrams) di bawah BERGANTUNG ke
+    // snap.rawAdc.
+    //
+    // FIX: pakai hx711.lastRawReading() -- CACHE raw ADC dari
+    // panggilan readWeightGrams() TERAKHIR yang loop() SUDAH lakukan
+    // (lihat hx711_reader.h/.cpp: raw disimpan SEBELUM dikonversi ke
+    // gram, BUKAN dibuang lagi seperti dulu). TIDAK ADA panggilan
+    // HX711 baru sama sekali di sini -- Debug cukup "meminjam" nilai
+    // yang sudah loop() hitung, PERSIS pola yang sama dengan fix
+    // "Berat (gram)" lama.
     if (grindActive) {
         snap.rawAdc = -2;
-    } else if (hx711.isReady()) {
-        snap.rawAdc = hx711.readRawAverage(1);
+    } else if (hx711.hasLastRawReading()) {
+        snap.rawAdc = hx711.lastRawReading();
     } else {
         snap.rawAdc = -1;
     }

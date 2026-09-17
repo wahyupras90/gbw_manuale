@@ -2,7 +2,8 @@
 
 HX711Reader::HX711Reader(uint8_t doutPin, uint8_t sckPin, uint8_t gain)
     : doutPin_(doutPin), sckPin_(sckPin), gain_(gain),
-      offset_(0), scaleUnitsPerGram_(0.0f), calibrationSet_(false) {}
+      offset_(0), scaleUnitsPerGram_(0.0f), calibrationSet_(false),
+      lastRawReading_(0), hasLastRawReading_(false) {}
 
 bool HX711Reader::begin() {
     hx711_.begin(doutPin_, sckPin_, gain_);
@@ -52,6 +53,12 @@ float HX711Reader::readWeightGrams() {
     }
 
     long raw = hx711_.read();
+    // BARU -- simpan raw SEBELUM konversi, expose lewat lastRawReading()
+    // -- lihat catatan lengkap di hx711_reader.h. Ini BUKAN panggilan
+    // HX711 tambahan, cuma menyimpan nilai yang SUDAH dihitung di
+    // baris di atas (dulu dibuang begitu saja setelah dikonversi).
+    lastRawReading_ = raw;
+    hasLastRawReading_ = true;
     return (raw - offset_) / scaleUnitsPerGram_;
 }
 
