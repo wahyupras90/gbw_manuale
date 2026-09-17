@@ -148,33 +148,53 @@ static GrindState s_lastGrindState = GrindState::IDLE;
 // dikonfirmasi dipakai sama persis di sana, bukan tebakan.
 static const char* s_resetReasonStr = "UNKNOWN";
 
-// BARU -- cache raw weight (SEBELUM filter outlier WeightFilter),
-// disepakati eksplisit setelah laporan: Debug screen "Berat (gram)"
-// tidak berguna sebagai timbangan biasa (taruh benda, angka tidak
-// berubah) -- SEBAB: field itu pakai weightFilter.latestWeight(),
-// yang cuma ter-update kalau pushRawSample() MENERIMA sample (lihat
-// weight_filter.cpp: sample ditolak kalau delta berat > maxDeltaG,
-// dihitung dari GRIND_FLOW_RATE_MAX_SANE_GPS -- dirancang untuk flow
-// kopi HALUS, ~0.1-1g per sample tergantung dt, BUKAN untuk lonjakan
-// besar mendadak seperti taruh cup di atas timbangan). Filter itu
-// SENGAJA ketat untuk keperluan grind (tolak noise/outlier), TAPI
-// jadi keterbatasan kalau dipakai sebagai timbangan serbaguna.
-//
-// FIX: cache s_lastRawWeightG diisi dari rawWeight MENTAH (baris
-// hx711.readWeightGrams() di loop(), SEBELUM diserahkan ke
-// pushRawSample()) -- diupdate SETIAP kali berhasil dibaca, TERLEPAS
-// apakah filter outlier menerima atau menolaknya. Debug screen
-// "Berat (gram)" SEKARANG baca dari cache ini (lihat
-// grind_get_debug_snapshot()), BUKAN weightFilter.latestWeight()
-// lagi -- selalu ikut berat fisik real-time, cocok dipakai sebagai
-// timbangan biasa (mis. kalibrasi/uji-coba retensi chute).
-//
-// CATATAN: perubahan ini TIDAK menyentuh weightFilter/logic grind
-// SAMA SEKALI -- filter outlier TETAP berlaku penuh untuk keputusan
-// grind (flow detection, predictive stop, dst), HANYA tampilan
-// Debug screen yang berubah sumber datanya.
-static float s_lastRawWeightG = NAN;
-static bool s_hasRawWeight = false;
+// RIWAYAT SINGKAT "Berat (gram)" di Debug screen (3 iterasi
+// perbaikan, disederhanakan di sini supaya tidak berulang-ulang di
+// tiap titik pemakaian -- lihat grind_get_debug_snapshot() untuk
+// implementasi AKTIF sekarang):
+//   1. AWALNYA: baca hx711.readWeightGrams() langsung dari Debug
+//      screen -- SELALU NAN (rebutan siklus ready HX711 dengan
+//      loop()).
+//   2. FIX #1: pakai weightFilter.latestWeight() (cache hasil loop()
+//      yang SUDAH lolos filter outlier) -- benar untuk keperluan
+//      grind, TAPI tidak berguna sebagai timbangan biasa (taruh
+//      benda mendadak = lonjakan besar = DITOLAK filter outlier yang
+//      dirancang untuk flow kopi halus, lihat weight_filter.cpp).
+//   3. FIX #2 (SEKARANG AKTIF): "Berat (gram)" dihitung MANUAL dari
+//      snap.rawAdc (raw ADC, SUDAH dihitung terpisah di
+//      grind_get_debug_snapshot(), TIDAK ADA panggilan HX711
+//      tambahan) dikurangi s_debugTareOffset (tare KHUSUS Debug, lihat
+//      debugScaleTare() di bawah), dibagi hx711.currentScale().
+//      BUKAN LAGI lewat weightFilter (filter outlier) SAMA SEKALI --
+//      field ini sekarang timbangan biasa, auto-tare tiap masuk Debug,
+//      TIDAK mempengaruhi logic grind (yang tetap pakai weightFilter
+//      via jalur terpisah).
+
+// BARU -- offset tare KHUSUS mode timbangan Debug screen, disepakati
+// eksplisit: "masuk menu Debug -> auto-tare -> taruh benda -> muncul
+// berat bersihnya". TERPISAH TOTAL dari hx711.offset_ (offset
+// kalibrasi grind) -- SENGAJA TIDAK pakai hx711.setCalibration() di
+// sini, supaya tare Debug TIDAK PERNAH mengubah/mengacaukan offset
+// yang dipakai grind (grind_start() auto-tare-nya sendiri, terpisah,
+// TETAP seperti semula, tidak disentuh perubahan ini). Field
+// "Berat (gram)" di Debug dihitung MANUAL dari
+// (raw_ADC_sekarang - s_debugTareOffset) / hx711.currentScale(),
+// BUKAN lewat HX711Reader::readWeightGrams() yang pakai offset_
+// globalnya sendiri.
+static long s_debugTareOffset = 0;
+static bool s_hasDebugTare = false;
+
+// Dipanggil dari ui_open_debug() (ui_screen_manager.cpp) SETIAP KALI
+// operator masuk Debug screen (BUKAN cuma sekali sejak boot -- lihat
+// catatan get_or_create_screen()/cache layar, ui_screen_manager.cpp:
+// create() cuma jalan sekali, TAPI navigate_to()/ui_open_debug()
+// jalan TIAP KALI). BLOCKING sesaat (readRawAverage(10), ~1 detik di
+// siklus 10Hz) -- pola SAMA seperti auto-tare grind_start(), DITERIMA
+// karena dipanggil SEKALI per kunjungan Debug, bukan di loop() rutin.
+void debugScaleTare() {
+    s_debugTareOffset = hx711.readRawAverage(10);
+    s_hasDebugTare = true;
+}
 
 static void captureResetReason() {
     esp_reset_reason_t rr = esp_reset_reason();
@@ -457,25 +477,20 @@ DebugSnapshot grind_get_debug_snapshot() {
     // KALAH REBUTAN SIKLUS setiap kali, secara SISTEMATIS bukan
     // kebetulan acak -- makanya SELALU NAN, bukan cuma sesekali.
     //
-    // FIX SEBELUMNYA (dipertahankan sebagai konteks): pakai CACHE
-    // (bukan coba baca ulang hx711 langsung dari Debug screen) untuk
-    // menghindari rebutan siklus ready HX711 dengan loop() -- lihat
-    // catatan lengkap di atas.
-    //
-    // FIX LANJUTAN (BARU, disepakati eksplisit setelah laporan "Berat
-    // (gram) tidak berguna sebagai timbangan -- taruh benda, angka
-    // tidak berubah"): cache YANG DIPAKAI sekarang BUKAN LAGI
-    // weightFilter.latestWeight() (yang cuma ter-update kalau filter
-    // outlier MENERIMA sample -- lonjakan besar mendadak, seperti
-    // taruh cup, DITOLAK filter itu karena dirancang untuk flow kopi
-    // halus, lihat weight_filter.cpp), TAPI s_lastRawWeightG --
-    // cache TERPISAH yang diisi loop() dari rawWeight MENTAH SEBELUM
-    // diserahkan ke filter outlier (lihat catatan lengkap di
-    // s_lastRawWeightG, atas file ini). Field ini SEKARANG cocok
-    // dipakai sebagai timbangan biasa (selalu ikut berat fisik
-    // real-time), TIDAK mempengaruhi logic grind SAMA SEKALI (grind
-    // tetap pakai weightFilter yang terfilter, lewat jalur lain).
-    snap.weightGrams = (!grindActive && s_hasRawWeight) ? s_lastRawWeightG : NAN;
+    // "Berat (gram)" -- lihat RIWAYAT SINGKAT (3 iterasi perbaikan) di
+    // atas file ini, dekat deklarasi s_debugTareOffset. Implementasi
+    // AKTIF sekarang (iterasi #3): dihitung MANUAL dari snap.rawAdc
+    // (SUDAH dihitung di atas, TIDAK ada panggilan HX711 tambahan)
+    // dikurangi s_debugTareOffset, dibagi hx711.currentScale().
+    // snap.rawAdc bisa -1 (belum ready) atau -2 (grind aktif) --
+    // weightGrams ikut NAN di kedua kasus itu, konsisten dengan Raw
+    // ADC di sebelahnya. !s_hasDebugTare -> NAN juga (Debug screen
+    // belum pernah dibuka sejak boot, tare belum pernah terpicu).
+    if (grindActive || snap.rawAdc < 0 || !s_hasDebugTare) {
+        snap.weightGrams = NAN;
+    } else {
+        snap.weightGrams = (float)(snap.rawAdc - s_debugTareOffset) / hx711.currentScale();
+    }
     snap.hasSample = weightFilter.hasSample();
     FlowRateResult flow = weightFilter.computeFlowRate();
     snap.flowValid = flow.valid;
@@ -911,13 +926,6 @@ void loop() {
         unsigned long sampleTimestampMs = millis();
 
         if (!isnan(rawWeight)) {
-            // BARU -- cache raw weight untuk mode timbangan (Debug
-            // screen), TERLEPAS dari hasil filter outlier di bawah --
-            // lihat catatan lengkap di s_lastRawWeightG (atas file
-            // ini).
-            s_lastRawWeightG = rawWeight;
-            s_hasRawWeight = true;
-
             bool accepted = weightFilter.pushRawSample(rawWeight, sampleTimestampMs, GRIND_FLOW_RATE_MAX_SANE_GPS);
             if (accepted) {
                 // SEKALI PER SAMPLE VALID -- sama pola arsitektur

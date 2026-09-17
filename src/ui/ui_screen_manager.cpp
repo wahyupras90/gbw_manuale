@@ -89,6 +89,10 @@ ui_screen_id_t ui_get_current_screen(void) {
 // lama di README (lihat catatan migrasi di sana).
 extern bool grind_start(float target_g);  // return value ditambahkan -- lihat catatan bug di main.cpp grind_start()
 extern AbortReason grind_last_abort_reason();  // debug cepat alasan tolak tanpa Serial -- lihat main.cpp
+// BARU -- auto-tare KHUSUS mode timbangan Debug screen, dipanggil
+// dari ui_open_debug() di bawah. Lihat catatan lengkap di
+// debugScaleTare()/s_debugTareOffset (main.cpp).
+extern void debugScaleTare();
 
 static lv_obj_t* get_or_create_screen(ui_screen_id_t id) {
     if (s_screens[id] != nullptr) return s_screens[id];
@@ -200,6 +204,13 @@ void ui_close_manual_grind(lv_event_t* e) {
 // dulu seperti Manual Grind) -- akses dari Settings, SELALU kembali
 // ke UI_SCREEN_SETTINGS.
 void ui_open_debug(lv_event_t* e) {
+    // BARU -- auto-tare mode timbangan SETIAP KALI masuk Debug (bukan
+    // cuma sekali sejak boot -- lihat catatan lengkap di
+    // debugScaleTare()/s_debugTareOffset, main.cpp). BLOCKING sesaat
+    // (~1 detik) SEBELUM navigate_to() -- operator akan lihat jeda
+    // singkat sebelum layar Debug tampil, DITERIMA karena ini aksi
+    // eksplisit (tombol OPEN ditekan), bukan di tengah alur otomatis.
+    debugScaleTare();
     navigate_to(UI_SCREEN_DEBUG);
 }
 
