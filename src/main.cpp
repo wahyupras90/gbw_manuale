@@ -196,6 +196,147 @@ void debugScaleTare() {
     s_hasDebugTare = true;
 }
 
+// Preferences object untuk NVS namespace "gbw" -- DIPINDAH ke sini
+// (SEBELUMNYA dideklarasikan lebih jauh di bawah, dekat
+// loadSettingsFromNVS()) supaya calibWizardSave() di blok wizard
+// kalibrasi tepat di bawah ini bisa memakainya (C++ butuh deklarasi
+// SEBELUM pemakaian pertama). loadSettingsFromNVS()/saveSettingsToNVS()
+// di bawah TETAP memakai variabel global yang SAMA ini, tidak ada
+// deklarasi duplikat.
+static Preferences settingsPrefs;
+
+// ============================================================
+// WIZARD KALIBRASI HX711 2-TITIK -- BARU. Dipanggil dari
+// screen_calibration_wizard.cpp (UI_SCREEN_CALIBRATION_WIZARD).
+// Menggantikan proses "kirim data ke Claude, hitung manual, edit
+// config.h, compile, OTA" yang sebelumnya perlu tiap kali scale HX711
+// drift -- sekarang operator bisa kalibrasi ulang langsung dari layar,
+// tersimpan ke NVS, TIDAK perlu compile ulang.
+//
+// ALUR (disepakati eksplisit dengan Wahyu):
+//   1. calibWizardTareEmpty()  -- timbangan kosong, baca offset baru
+//   2. calibWizardReadPoint()  -- beban 1 taruh, baca raw ADC
+//   3. calibWizardReadPoint()  -- beban 2 (beda dari beban 1), baca raw ADC
+//   4. calibWizardComputeScale() -- hitung scale baru dari 2 titik,
+//      DAN residual di kedua titik itu (LINEAR FIT LEWAT OFFSET DARI
+//      LANGKAH 1, BUKAN least-squares 2 variabel -- offset dari tare
+//      kosong dianggap PASTI benar, cuma scale yang dicari, konsisten
+//      dengan cara HX711_CALIBRATION_OFFSET/SCALE dipisah di seluruh
+//      firmware ini)
+//   5. Operator lihat hasil (scale lama vs baru + residual) -> SIMPAN
+//      (calibWizardSave()) atau BATAL (buang, tidak sentuh NVS/scale
+//      aktif sama sekali)
+//
+// Semua raw ADC dibaca BLOCKING (readRawAverage(10), ~1 detik per
+// panggilan) -- DITERIMA, wizard ini aksi eksplisit operator, bukan
+// bagian dari loop() rutin, pola sama seperti debugScaleTare().
+// ============================================================
+static long s_calibOffset = 0;
+static long s_calibRaw1 = 0;
+static long s_calibRaw2 = 0;
+static float s_calibWeight1 = 0.0f;
+static float s_calibWeight2 = 0.0f;
+static float s_calibScaleOld = 0.0f;
+static float s_calibScaleNew = 0.0f;
+static float s_calibResidual1 = 0.0f;
+static float s_calibResidual2 = 0.0f;
+
+void calibWizardTareEmpty() {
+    s_calibOffset = hx711.readRawAverage(10);
+}
+
+// point: 1 atau 2. weightGrams: berat aktual yang operator masukkan
+// lewat keypad (screen_calibration_wizard.cpp).
+void calibWizardReadPoint(int point, float weightGrams) {
+    long raw = hx711.readRawAverage(10);
+    if (point == 1) {
+        s_calibRaw1 = raw;
+        s_calibWeight1 = weightGrams;
+    } else {
+        s_calibRaw2 = raw;
+        s_calibWeight2 = weightGrams;
+    }
+}
+
+// Dipanggil SETELAH kedua titik terbaca. Hitung scale baru dari
+// SATU titik yang beratnya lebih besar (lebih sedikit relative error
+// dari noise HX711 dibanding titik kecil), lalu titik lain dipakai
+// MURNI untuk verifikasi (residual) -- BUKAN dirata-ratakan dengan
+// titik pertama, supaya konsisten dengan hasil kalkulasi manual
+// sebelumnya (lihat riwayat HX711_CALIBRATION_SCALE di config.h: 3
+// sampel manual sebelumnya juga diverifikasi begini, BUKAN
+// least-squares 2 variabel).
+//
+// Return false kalau kedua berat yang dimasukkan operator sama/terlalu
+// dekat (pembagi mendekati nol, hasil scale tidak bisa dipercaya) --
+// caller (screen_calibration_wizard.cpp) HARUS cek return value ini
+// sebelum menampilkan hasil, tampilkan pesan error alih-alih angka
+// yang tidak masuk akal.
+bool calibWizardComputeScale() {
+    // Pilih titik dengan berat LEBIH BESAR sebagai basis kalkulasi
+    // scale (relative error dari noise HX711 lebih kecil di berat
+    // besar -- sama alasan seperti kenapa brief kalibrasi awal pakai
+    // beban 21-452g, bukan cuma beban kecil <20g).
+    long rawBasis, rawOther;
+    float weightBasis, weightOther;
+    if (fabsf(s_calibWeight1) >= fabsf(s_calibWeight2)) {
+        rawBasis = s_calibRaw1; weightBasis = s_calibWeight1;
+        rawOther = s_calibRaw2; weightOther = s_calibWeight2;
+    } else {
+        rawBasis = s_calibRaw2; weightBasis = s_calibWeight2;
+        rawOther = s_calibRaw1; weightOther = s_calibWeight1;
+    }
+
+    if (weightBasis < 1.0f) return false;  // berat basis terlalu kecil/nol, tidak valid
+
+    s_calibScaleOld = hx711.currentScale();  // scale AKTIF sekarang (bisa dari NVS kalibrasi sebelumnya, BUKAN selalu config.h default)
+    s_calibScaleNew = (float)(rawBasis - s_calibOffset) / weightBasis;
+    if (s_calibScaleNew <= 0.0f || isnan(s_calibScaleNew)) return false;
+
+    // Residual -- prediksi berat di TIAP titik pakai scale baru,
+    // dibandingkan berat yang operator masukkan. Residual titik basis
+    // seharusnya ~0 (dipakai untuk hitung scale itu sendiri); residual
+    // titik lain adalah VERIFIKASI LINEARITAS SEBENARNYA.
+    float predictedBasis = (float)(rawBasis - s_calibOffset) / s_calibScaleNew;
+    float predictedOther = (float)(rawOther - s_calibOffset) / s_calibScaleNew;
+    float residBasis = predictedBasis - weightBasis;
+    float residOther = predictedOther - weightOther;
+
+    // Simpan residual sesuai urutan point 1/2 ASLI (bukan basis/other)
+    // supaya screen_calibration_wizard.cpp bisa tampilkan "Beban 1: ...g,
+    // Beban 2: ...g" konsisten dengan urutan yang operator lihat saat
+    // memasukkan berat.
+    if (fabsf(s_calibWeight1) >= fabsf(s_calibWeight2)) {
+        s_calibResidual1 = residBasis;
+        s_calibResidual2 = residOther;
+    } else {
+        s_calibResidual1 = residOther;
+        s_calibResidual2 = residBasis;
+    }
+
+    return true;
+}
+
+float calibWizardScaleOld() { return s_calibScaleOld; }
+float calibWizardScaleNew() { return s_calibScaleNew; }
+float calibWizardResidual1() { return s_calibResidual1; }
+float calibWizardResidual2() { return s_calibResidual2; }
+
+// Tulis scale baru ke NVS (namespace "gbw", SAMA seperti 5 setting
+// lain -- lihat loadSettingsFromNvs()/saveSettingsToNvs() di bawah)
+// DAN langsung aktifkan runtime lewat hx711.setCalibration() (offset
+// TETAP dari auto-tare grind_start() seperti biasa -- TIDAK disentuh
+// di sini, HANYA scale yang berubah).
+void calibWizardSave() {
+    settingsPrefs.begin("gbw", false);
+    settingsPrefs.putFloat("hx_scale", s_calibScaleNew);
+    settingsPrefs.end();
+
+    hx711.setCalibration(hx711.currentOffset(), s_calibScaleNew);
+    Serial.printf("[CALIB] Scale HX711 baru disimpan ke NVS & diaktifkan: %.4f (lama: %.4f)\n",
+                  s_calibScaleNew, s_calibScaleOld);
+}
+
 static void captureResetReason() {
     esp_reset_reason_t rr = esp_reset_reason();
     switch (rr) {
@@ -227,8 +368,9 @@ static void captureResetReason() {
 // Preferences API, sengaja pendek & spesifik supaya tidak bentrok
 // kalau kelak ada namespace NVS lain (mis. WiFi credentials).
 // Key JUGA max 15 karakter -- "tol_g"/"max_pulse"/"settle_ms"/
-// "coast_ratio" semua di bawah batas itu.
-static Preferences settingsPrefs;
+// "coast_ratio" semua di bawah batas itu. (Deklarasi objek
+// settingsPrefs SENDIRI ada lebih awal di file ini, dekat
+// debugScaleTare() -- lihat catatan di sana.)
 
 // Dipanggil SEKALI di setup(), SEBELUM apa pun yang membaca
 // g_ui_state.accuracy_tolerance_g/max_pulse_attempts/settle_time_ms/
@@ -325,9 +467,18 @@ bool grind_start(float target_g) {
     // Serial 'raw') -- durasi sama seperti perintah 'raw' yang sudah
     // dipakai rutin tanpa masalah, jadi diterima di titik SEBELUM
     // grind dimulai (bukan di tengah grind/loop() rutin).
-    if (HX711_CALIBRATION_SCALE != 0.0f) {
+    // PENTING: pakai hx711.currentScale() (scale AKTIF saat ini), BUKAN
+    // HX711_CALIBRATION_SCALE (compile-time) langsung -- kalau operator
+    // sudah pakai wizard kalibrasi (calibWizardSave(), tersimpan NVS),
+    // currentScale() sudah berisi nilai NVS itu sejak setup(). Memakai
+    // define compile-time di sini akan DIAM-DIAM MENIMPA BALIK scale
+    // wizard ke nilai config.h lama SETIAP KALI grind dimulai -- bug
+    // yang HARUS dihindari (ditemukan saat menambahkan wizard
+    // kalibrasi, sebelum sempat jadi masalah nyata).
+    float activeCalibScale = hx711.currentScale();
+    if (activeCalibScale != 0.0f) {
         long freshOffset = hx711.readRawAverage(10);
-        hx711.setCalibration(freshOffset, HX711_CALIBRATION_SCALE);
+        hx711.setCalibration(freshOffset, activeCalibScale);
         // WAJIB reset weightFilter SETELAH offset baru diset -- lihat
         // catatan lengkap di WeightFilter::reset() (weight_filter.h).
         // Tanpa ini, sample lama (basis offset SEBELUM tare) masih
@@ -872,8 +1023,20 @@ void setup() {
     if (!hx711.begin()) {
         Serial.println("[HX711] GAGAL init -- cek wiring DOUT/SCK/VCC/GND (lihat WIRING.md). Firmware tetap lanjut, tapi berat tidak akan terbaca.");
     }
-    hx711.setCalibration(HX711_CALIBRATION_OFFSET, HX711_CALIBRATION_SCALE);
-    if (HX711_CALIBRATION_SCALE == 0.0f) {
+    // Scale HX711 -- BARU: baca dari NVS DULU (diisi wizard kalibrasi
+    // 2-titik, lihat calibWizardSave()), fallback ke HX711_CALIBRATION_SCALE
+    // config.h kalau NVS belum pernah ditulis (board baru/belum pernah
+    // pakai wizard). Pola read-only-begin() SAMA seperti
+    // loadSettingsFromNVS() di atas.
+    settingsPrefs.begin("gbw", true);
+    float activeScale = settingsPrefs.getFloat("hx_scale", HX711_CALIBRATION_SCALE);
+    settingsPrefs.end();
+    hx711.setCalibration(HX711_CALIBRATION_OFFSET, activeScale);
+    if (activeScale != HX711_CALIBRATION_SCALE) {
+        Serial.printf("[HX711] Scale dari NVS (wizard kalibrasi): %.4f (config.h default: %.4f, diabaikan)\n",
+                      activeScale, HX711_CALIBRATION_SCALE);
+    }
+    if (activeScale == 0.0f) {
         Serial.println("[HX711] PERINGATAN -- kalibrasi (HX711_CALIBRATION_OFFSET/SCALE) BELUM diisi di config.h.");
         Serial.println("[HX711] Ikuti README bagian 'Cara kalibrasi HX711' sebelum kalibrasi/grind dipakai.");
     } else if (hx711.isReady()) {
@@ -889,7 +1052,7 @@ void setup() {
         // independen). isReady() dicek dulu supaya tidak blocking kalau HX711
         // belum siap kirim sample pertama (hindari readRawAverage() macet).
         long bootOffset = hx711.readRawAverage(10);
-        hx711.setCalibration(bootOffset, HX711_CALIBRATION_SCALE);
+        hx711.setCalibration(bootOffset, activeScale);
         Serial.printf("[HX711] Tare kosmetik saat boot -- offset awal: %ld\n", bootOffset);
     }
 

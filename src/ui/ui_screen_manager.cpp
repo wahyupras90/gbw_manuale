@@ -14,6 +14,8 @@ extern lv_obj_t* ui_screen_manual_grind_create(void);
 extern void ui_screen_manual_grind_update(void);
 extern lv_obj_t* ui_screen_debug_create(void);
 extern void ui_screen_debug_update(void);
+extern lv_obj_t* ui_screen_calibration_wizard_create(void);
+extern void ui_screen_calibration_wizard_reset(void);
 
 // Update function tiap screen (dipanggil dari main loop saat screen itu aktif)
 extern void ui_screen_idle_update(void);
@@ -55,7 +57,7 @@ ui_shared_state_t g_ui_state = {
 static ui_screen_id_t s_current_screen = UI_SCREEN_IDLE;
 static ui_screen_id_t s_screen_before_settings = UI_SCREEN_IDLE;  // untuk tombol back di Settings
 
-static lv_obj_t* s_screens[8] = {nullptr};  // dinaikkan 7->8 -- UI_SCREEN_DEBUG ditambahkan
+static lv_obj_t* s_screens[9] = {nullptr};  // dinaikkan 8->9 -- UI_SCREEN_CALIBRATION_WIZARD ditambahkan
 
 // ------------------------------------------------------------
 // GETTER BARU -- dipakai main.cpp (handleGrindStateTransitionForUi())
@@ -106,6 +108,7 @@ static lv_obj_t* get_or_create_screen(ui_screen_id_t id) {
         case UI_SCREEN_SETTINGS:         s_screens[id] = ui_screen_settings_create(); break;
         case UI_SCREEN_MANUAL_GRIND:     s_screens[id] = ui_screen_manual_grind_create(); break;
         case UI_SCREEN_DEBUG:            s_screens[id] = ui_screen_debug_create(); break;
+        case UI_SCREEN_CALIBRATION_WIZARD: s_screens[id] = ui_screen_calibration_wizard_create(); break;
     }
     return s_screens[id];
 }
@@ -216,6 +219,19 @@ void ui_open_debug(lv_event_t* e) {
 
 void ui_close_debug(lv_event_t* e) {
     navigate_to(UI_SCREEN_SETTINGS);
+}
+
+// Wizard kalibrasi -- akses dari tombol "KALIBRASI ULANG" di Debug
+// screen (screen_debug.cpp), SELALU kembali ke UI_SCREEN_DEBUG (bukan
+// Settings) supaya operator bisa langsung lihat "Scale aktif" yang
+// baru di Debug setelah SIMPAN, tanpa perlu masuk Debug lagi manual.
+void ui_open_calibration_wizard(lv_event_t* e) {
+    ui_screen_calibration_wizard_reset();  // state wizard mulai bersih tiap kunjungan
+    navigate_to(UI_SCREEN_CALIBRATION_WIZARD);
+}
+
+void ui_close_calibration_wizard(lv_event_t* e) {
+    navigate_to(UI_SCREEN_DEBUG);
 }
 
 void ui_confirm_target(float target_g) {

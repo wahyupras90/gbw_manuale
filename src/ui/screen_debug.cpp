@@ -45,6 +45,7 @@ static unsigned long s_lastRefreshMs = 0;
 
 extern DebugSnapshot grind_get_debug_snapshot();
 extern void ui_close_debug(lv_event_t* e);
+extern void ui_open_calibration_wizard(lv_event_t* e);
 
 // Helper bikin satu baris "label kiri -- value kanan" di dalam card,
 // pola sama seperti create_stat_item() di screen_idle.cpp tapi
@@ -205,6 +206,23 @@ lv_obj_t* ui_screen_debug_create(void) {
     s_offset_value = create_debug_row(container, "Offset aktif");
     s_scale_value = create_debug_row(container, "Scale aktif");
     s_weight_value = create_debug_row(container, "Berat (gram)");
+
+    // BARU -- tombol masuk wizard kalibrasi 2-titik (screen_calibration_wizard.cpp).
+    // Ditaruh di section HX711 RAW (bukan section terpisah) -- aksi ini
+    // langsung terkait field "Scale aktif" di atas, jadi ditempatkan
+    // berdekatan secara visual.
+    lv_obj_t* calib_btn = lv_btn_create(container);
+    lv_obj_set_size(calib_btn, SCREEN_WIDTH - 32, 40);
+    lv_obj_set_style_bg_color(calib_btn, COLOR_BG_CARD, 0);
+    lv_obj_set_style_border_width(calib_btn, 1, 0);
+    lv_obj_set_style_border_color(calib_btn, COLOR_ACCENT_DIM, 0);
+    lv_obj_set_style_radius(calib_btn, 10, 0);
+    lv_obj_add_event_cb(calib_btn, ui_open_calibration_wizard, LV_EVENT_CLICKED, NULL);
+    lv_obj_t* calib_label = lv_label_create(calib_btn);
+    lv_label_set_text(calib_label, "KALIBRASI ULANG");
+    lv_obj_set_style_text_font(calib_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(calib_label, COLOR_ACCENT, 0);
+    lv_obj_center(calib_label);
 
     create_section_label(container, "VALIDASI GRIND");
     s_has_sample_value = create_debug_row(container, "hasSample()");
