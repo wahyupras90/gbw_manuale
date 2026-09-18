@@ -131,11 +131,9 @@
 // menemukan URL download dan melaporkan error (lihat github_ota.cpp).
 #define GITHUB_OTA_ASSET_NAME  "firmware.bin"
 
-// KALIBRASI HX711 -- SCALE MENTAH (DATAR/FLAT) hasil kalibrasi fisik
-// dengan load cell dalam posisi HORIZONTAL/DATAR, diverifikasi linear
-// di 4 titik (0g, 122.1g, 232.6g, 499.4g), error <0.1% pada titik
-// cross-check independen. Diyakini stabil jangka panjang (TIDAK
-// seperti offset di bawah).
+// KALIBRASI HX711 -- SCALE MENTAH (DATAR/FLAT), lihat catatan
+// riwayat di bawah untuk kenapa nilainya sudah direvisi sejak
+// kalibrasi awal.
 //
 // PENTING: load cell terpasang MIRING di case final (bukan datar),
 // sehingga bacaan mentah HX711 di sudut miring lebih KECIL dari berat
@@ -146,7 +144,26 @@
 // terpasang final (sudah miring), maka LOAD_CELL_TILT_ANGLE_DEG harus
 // diset ke 0.0f -- JANGAN mengoreksi sudut dua kali (double
 // correction), lihat catatan LOAD_CELL_TILT_ANGLE_DEG.
-#define HX711_CALIBRATION_SCALE_FLAT   2022.88f   // units per gram, load cell DATAR (tanpa koreksi sudut)
+//
+// RIWAYAT: nilai 2022.88f (kalibrasi awal) TERBUKTI TIDAK LAGI AKURAT
+// setelah verifikasi ulang lewat mode timbangan Debug -- 3 sampel
+// independen (21.3g->19.8g, 68.3g->63.5g, 313.6g->291.5g) semua
+// menunjukkan rasio bacaan/aktual konsisten ~0.9296 (stdev <0.0002,
+// BUKAN noise/linearitas, murni scale factor salah) SETELAH koreksi
+// sudut 15.5 derajat sudah diterapkan -- artinya baseline flat itu
+// sendiri sudah drift/tidak akurat lagi (load cell atau mounting
+// bergeser sejak kalibrasi 2022.88f dilakukan), BUKAN soal sudutnya
+// salah. Bacaan lebih KECIL dari aktual berarti scale yang dipakai
+// TERLALU BESAR, jadi baseline flat diturunkan (bukan dinaikkan).
+// Direvisi ke 1880.49f (= scale_lama_efektif 2099.23 dikali rasio
+// 0.9296, lalu dibagi CF(15.5deg)=1.0377) -- diverifikasi ulang
+// terhadap ketiga sampel, error <0.03g di semua titik. KALAU error
+// serupa muncul lagi di masa depan, ulangi kalibrasi 3-titik ini
+// (beban kecil/sedang/besar via mode timbangan Debug) daripada
+// menebak -- root cause paling mungkin adalah drift load cell, bukan
+// bug kode (formula sudah diverifikasi bersih, lihat
+// hx711_reader.cpp/debug scale mode).
+#define HX711_CALIBRATION_SCALE_FLAT   1880.49f   // units per gram, load cell DATAR (tanpa koreksi sudut) -- direvisi dari 2022.88f, lihat RIWAYAT di atas
 
 // Sudut kemiringan load cell dari horizontal, dalam derajat.
 // UBAH ANGKA INI SAJA kalau sudut mounting berubah di masa depan --
