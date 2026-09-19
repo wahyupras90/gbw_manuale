@@ -118,7 +118,7 @@ GrindController::GrindController(WeightFilter* weightFilter, MotorController* mo
       stabilityThresholdG_(0.3f), pendingStabilityThresholdG_(0.3f),
       waitStableStartMs_(0), waitStableOkSinceMs_(0), waitStableLastWeight_(NAN),
       // BARU -- last grind data, diinisialisasi NAN/0 sampai sesi pertama selesai.
-      predictiveStopWeightG_(NAN),
+      predictiveStopWeightG_(NAN), weightAfterPredictiveSettle_(NAN),
       lastGrindWeightAtMotorStop_(NAN), lastGrindPredictedCoast_(NAN),
       lastGrindActualCoast_(NAN), lastGrindCoastRatioUsed_(NAN),
       lastGrindLatencyMs_(0), lastGrindFinalWeightG_(NAN), lastGrindPulseCount_(0) {}
@@ -274,7 +274,8 @@ bool GrindController::startGrind(float targetDoseG) {
     waitStableLastWeight_ = NAN;
 
     // Reset state model real-time untuk sesi baru.
-    predictiveStopWeightG_ = NAN;  // diisi HANYA di call site predictive stop
+    predictiveStopWeightG_ = NAN;         // diisi HANYA di call site predictive stop
+    weightAfterPredictiveSettle_ = NAN;   // diisi di WAIT_SETTLE setelah settling selesai, sebelum post-purge
     candidateFlowStartMs_ = 0;
     flowStartConfirmed_ = false;
     grindLatencyMs_ = 0;
@@ -481,6 +482,13 @@ void GrindController::onWeightSample(float rawWeightG, unsigned long sampleTimes
             if (millis() - motorStoppedMs_ < settlingTimeMs_) {
                 break;
             }
+
+            // Capture berat setelah natural settling selesai -- SEBELUM
+            // post-purge/pulse correction. Ini yang dipakai untuk
+            // actualCoast = weightAfterPredictiveSettle_ - predictiveStopWeightG_
+            // sehingga data benar-benar mengukur natural coast, bukan
+            // coast + purge + pulse.
+            weightAfterPredictiveSettle_ = weightFilter_ ? weightFilter_->latestWeight() : NAN;
 
             // BARU -- POST_PURGE disisipkan DI SINI, SEBELUM cek
             // target/keputusan (BUKAN setelah pulsa gagal cukupi
@@ -921,14 +929,16 @@ void GrindController::finishAsComplete() {
                   finalWeightG_, targetAbsoluteG_, errorG, pulseAttempts_, grindDurationMs(), grindLatencyMs_);
 
     // Simpan data karakterisasi sesi ini untuk Debug screen LAST GRIND.
-    // predictiveStopWeightG_ diisi HANYA di call site predictive stop
-    // (bukan di pulse correction/post-purge), sehingga actualCoast
-    // benar-benar mengukur coast dari predictive motor OFF ke final weight.
+    // Data karakterisasi coast yang benar:
+    // - predictiveStopWeightG_      : berat saat predictive motor OFF
+    // - weightAfterPredictiveSettle_: berat setelah natural settling, SEBELUM post-purge/pulse
+    // - actualCoast                 : selisih keduanya = natural coast murni
+    // - finalWeightG_               : hasil akhir (termasuk purge/pulse jika terjadi)
     lastGrindWeightAtMotorStop_ = predictiveStopWeightG_;
     lastGrindPredictedCoast_    = motorStopTargetWeightG_;
-    lastGrindActualCoast_       = isnan(predictiveStopWeightG_)
+    lastGrindActualCoast_       = (isnan(predictiveStopWeightG_) || isnan(weightAfterPredictiveSettle_))
                                   ? NAN
-                                  : finalWeightG_ - predictiveStopWeightG_;
+                                  : weightAfterPredictiveSettle_ - predictiveStopWeightG_;
     lastGrindCoastRatioUsed_    = coastRatio_;
     lastGrindLatencyMs_         = grindLatencyMs_;
     lastGrindFinalWeightG_      = finalWeightG_;

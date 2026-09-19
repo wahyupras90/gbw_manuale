@@ -424,10 +424,11 @@ private:
 
     // LAST GRIND DATA -- disimpan di finishAsComplete(), dibaca Debug screen
     // Semua float/ulong, disimpan ke NVS "gbwdiag" setelah grind selesai.
-    float predictiveStopWeightG_;     // berat aktual dari weightFilter_ TEPAT saat predictive stop -- TIDAK ditimpa pulse/purge
+    float predictiveStopWeightG_;         // berat aktual dari weightFilter_ TEPAT saat predictive stop -- TIDAK ditimpa pulse/purge
+    float weightAfterPredictiveSettle_;   // berat setelah settling selesai, SEBELUM post-purge/pulse -- untuk actualCoast murni
     float lastGrindWeightAtMotorStop_;
-    float lastGrindPredictedCoast_;   // = motorStopTargetWeightG_ saat predictive stop
-    float lastGrindActualCoast_;      // = finalWeightG_ - predictiveStopWeightG_ (coast sejati dari predictive stop)
+    float lastGrindPredictedCoast_;       // = motorStopTargetWeightG_ saat predictive stop
+    float lastGrindActualCoast_;          // = weightAfterPredictiveSettle_ - predictiveStopWeightG_ (natural coast murni)
     float lastGrindCoastRatioUsed_;
     unsigned long lastGrindLatencyMs_;
     float lastGrindFinalWeightG_;
