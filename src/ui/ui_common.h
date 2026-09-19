@@ -110,6 +110,7 @@ typedef struct {
     unsigned long confirmation_window_ms;  // BARU -- default dari GRIND_LATENCY_CONFIRMATION_MS, bisa diubah user
     bool post_purge_enabled;      // BARU -- default false, bisa diaktifkan lewat switch di Settings
     int post_purge_pulse_count;   // BARU -- default dari GRIND_POST_PURGE_PULSE_COUNT_DEFAULT, bisa diubah user
+    float stability_threshold_g;  // BARU -- threshold pre-grind stability check, default 0.3g
 } ui_shared_state_t;
 
 extern ui_shared_state_t g_ui_state;

@@ -113,7 +113,14 @@ GrindController::GrindController(WeightFilter* weightFilter, MotorController* mo
       // lama sampai operator eksplisit mengaktifkan lewat Settings.
       postPurgeEnabled_(false), pendingPostPurgeEnabled_(false),
       postPurgePulseCount_(GRIND_POST_PURGE_PULSE_COUNT_DEFAULT), pendingPostPurgePulseCount_(GRIND_POST_PURGE_PULSE_COUNT_DEFAULT),
-      postPurgePulsesRemaining_(0) {}
+      postPurgePulsesRemaining_(0),
+      // BARU -- stabilityThresholdG_, pola sama. Default 0.3g.
+      stabilityThresholdG_(0.3f), pendingStabilityThresholdG_(0.3f),
+      waitStableStartMs_(0), waitStableOkSinceMs_(0), waitStableLastWeight_(NAN),
+      // BARU -- last grind data, diinisialisasi NAN/0 sampai sesi pertama selesai.
+      lastGrindWeightAtMotorStop_(NAN), lastGrindPredictedCoast_(NAN),
+      lastGrindActualCoast_(NAN), lastGrindCoastRatioUsed_(NAN),
+      lastGrindLatencyMs_(0), lastGrindFinalWeightG_(NAN), lastGrindPulseCount_(0) {}
 
 // ------------------------------------------------------------
 // Getter kecil
@@ -260,6 +267,10 @@ bool GrindController::startGrind(float targetDoseG) {
     postPurgeEnabled_ = pendingPostPurgeEnabled_;  // BARU -- pola sama
     postPurgePulseCount_ = pendingPostPurgePulseCount_;  // BARU -- pola sama
     postPurgePulsesRemaining_ = 0;  // BARU -- reset counter runtime untuk sesi baru
+    stabilityThresholdG_ = pendingStabilityThresholdG_;
+    waitStableStartMs_ = millis();
+    waitStableOkSinceMs_ = 0;
+    waitStableLastWeight_ = NAN;
 
     // Reset state model real-time untuk sesi baru.
     candidateFlowStartMs_ = 0;
@@ -269,33 +280,35 @@ bool GrindController::startGrind(float targetDoseG) {
     sessionPulseFlowGps_ = NAN;
     resetFlowHistory();
 
-    Serial.printf("[GRIND] Mulai -- dose=%.2fg tare=%.2fg target_absolut=%.2fg (ratio=%.2f, tolerance=%.3fg, max_pulses=%d, settle=%lums)\n",
+    Serial.printf("[GRIND] Mulai -- dose=%.2fg tare=%.2fg target_absolut=%.2fg (ratio=%.2f, tolerance=%.3fg, max_pulses=%d, settle=%lums, stability_thresh=%.2fg)\n",
                   targetDoseG_, startWeightG_, targetAbsoluteG_, coastRatio_,
-                  accuracyToleranceG_, maxPulseAttempts_, settlingTimeMs_);
+                  accuracyToleranceG_, maxPulseAttempts_, settlingTimeMs_, stabilityThresholdG_);
 
-    transitionTo(GrindState::STARTING);
+    // Transisi ke WAIT_STABLE dulu (BARU) -- motor belum nyala.
+    // Motor nyala setelah timbangan stabil (atau timeout = settlingTimeMs_).
+    // Lihat case WAIT_STABLE di update().
+    transitionTo(GrindState::WAIT_STABLE);
+    return true;
+}
 
+// Dipanggil dari update() saat WAIT_STABLE sudah terpenuhi (stabil
+// atau timeout) -- nyalakan motor dan transisi ke WAIT_FLOW_START.
+// Dipisah dari startGrind() supaya WAIT_STABLE bisa diimplementasikan
+// di update() loop tanpa memblokir.
+void GrindController::startMotorAndBeginGrind() {
     MotorResult r = motor_->start();
     lastMotorRttMs_ = r.rttMs;
     if (!r.success) {
-        // FIX SAFETY CRITICAL (dipertahankan dari versi sebelumnya):
-        // "ON gagal terkirim" TIDAK BERARTI motor pasti mati -- response
-        // bisa hilang SETELAH Tasmota/GPIO sebenarnya sudah proses ON.
         Serial.println("[GRIND] Motor ON gagal terkirim -- force-off sebagai jaga-jaga.");
         doAbort(AbortReason::MOTOR_COMMAND_FAILED);
-        return false;
+        return;
     }
 
     motorStartedMs_ = r.commandSentMs;
-    lastFlowAboveThresholdMs_ = motorStartedMs_;  // basis awal stall timer
+    lastFlowAboveThresholdMs_ = motorStartedMs_;
 
-    // TRANSISI KE WAIT_FLOW_START, BUKAN LANGSUNG GRINDING (fix per
-    // review) -- predictive stop TIDAK BOLEH aktif sebelum flow
-    // benar-benar confirmed. Lihat evaluateFlowStartConfirmation()
-    // untuk transisi ke GRINDING setelah confirmed, dan checkStall()
-    // untuk timeout kalau flow tidak pernah confirmed.
+    transitionTo(GrindState::STARTING);
     transitionTo(GrindState::WAIT_FLOW_START);
-    return true;
 }
 
 // ------------------------------------------------------------
@@ -415,6 +428,42 @@ void GrindController::onWeightSample(float rawWeightG, unsigned long sampleTimes
     if (state_ == GrindState::ABORT) return;
 
     switch (state_) {
+        case GrindState::WAIT_STABLE: {
+            // Tunggu timbangan stabil sebelum motor nyala. Stabil =
+            // variasi berat antar sample < stabilityThresholdG_ selama
+            // 500ms berturut-turut. Timeout = settlingTimeMs_ (ikut
+            // setting Settle Time, default 2000ms) -- kalau timeout,
+            // grind tetap lanjut (tidak abort) supaya pemakaian harian
+            // tidak terganggu kalau load cell sedikit noisy.
+            if (!isnan(waitStableLastWeight_)) {
+                float delta = fabsf(currentWeight - waitStableLastWeight_);
+                if (delta <= stabilityThresholdG_) {
+                    // Masih dalam threshold -- cek apakah sudah 500ms stabil
+                    if (waitStableOkSinceMs_ == 0) {
+                        waitStableOkSinceMs_ = sampleTimestampMs;
+                    } else if (sampleTimestampMs - waitStableOkSinceMs_ >= 500UL) {
+                        Serial.printf("[GRIND] Timbangan stabil (delta=%.3fg <= threshold=%.2fg selama 500ms) -- mulai grind.\n",
+                                      delta, stabilityThresholdG_);
+                        saveCheckpoint("stable_ok");
+                        startMotorAndBeginGrind();
+                        break;
+                    }
+                } else {
+                    // Variasi masih besar -- reset timer stabil
+                    waitStableOkSinceMs_ = 0;
+                }
+            }
+            waitStableLastWeight_ = currentWeight;
+
+            // Cek timeout -- kalau sudah > settlingTimeMs_, lanjut saja
+            if (millis() - waitStableStartMs_ >= settlingTimeMs_) {
+                Serial.printf("[GRIND] Stability timeout (%.0fms) -- grind tetap mulai.\n",
+                              (float)settlingTimeMs_);
+                saveCheckpoint("stable_timeout");
+                startMotorAndBeginGrind();
+            }
+            break;
+        }
         case GrindState::WAIT_FLOW_START:
             evaluateFlowStartConfirmation(sampleTimestampMs);
             break;
@@ -863,6 +912,18 @@ void GrindController::finishAsComplete() {
     Serial.printf("[GRIND] SELESAI -- hasil=%s berat_akhir=%.2fg target=%.2fg error=%.3fg pulse_attempts=%d durasi=%lums grind_latency=%lums\n",
                   result_ == GrindResult::SUCCESS ? "SUCCESS" : "INACCURATE",
                   finalWeightG_, targetAbsoluteG_, errorG, pulseAttempts_, grindDurationMs(), grindLatencyMs_);
+
+    // Simpan data karakterisasi sesi ini untuk Debug screen LAST GRIND.
+    // weightAtMotorStop = berat saat motor berhenti = targetAbsoluteG_ - motorStopTargetWeightG_
+    // (motorStopTargetWeightG_ = gram yang diprediksi masih akan jatuh setelah motor OFF).
+    float weightAtStop = targetAbsoluteG_ - motorStopTargetWeightG_;
+    lastGrindWeightAtMotorStop_ = weightAtStop;
+    lastGrindPredictedCoast_    = motorStopTargetWeightG_;
+    lastGrindActualCoast_       = finalWeightG_ - weightAtStop;
+    lastGrindCoastRatioUsed_    = coastRatio_;
+    lastGrindLatencyMs_         = grindLatencyMs_;
+    lastGrindFinalWeightG_      = finalWeightG_;
+    lastGrindPulseCount_        = pulseAttempts_;
 
     transitionTo(GrindState::COMPLETE);
 }

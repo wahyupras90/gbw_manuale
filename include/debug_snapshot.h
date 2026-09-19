@@ -58,4 +58,17 @@ struct DebugSnapshot {
     // Dibaca lewat Debug screen -> field "Last checkpoint".
     String lastCheckpoint;       // label terakhir, "(belum ada)" kalau NVS kosong
     unsigned long lastCheckpointMs;  // millis() saat checkpoint itu ditulis (dari sesi SEBELUMNYA)
+
+    // --- LAST GRIND DATA -- data karakterisasi sesi grind terakhir,
+    // disimpan ke NVS "gbwdiag" di finishAsComplete() dan dibaca
+    // setiap kali Debug screen dibuka. Tujuan: kumpulkan data
+    // empiris untuk validasi coastRatio (predictedCoast vs actualCoast)
+    // tanpa perlu Serial/USB. NAN kalau belum pernah ada grind selesai.
+    float lastGrindWeightAtMotorStop;  // berat saat motor berhenti (g)
+    float lastGrindPredictedCoast;     // gram yang diprediksi masih jatuh setelah motor OFF
+    float lastGrindActualCoast;        // gram yang benar-benar jatuh setelah motor OFF
+    float lastGrindCoastRatioUsed;     // coastRatio yang dipakai sesi itu
+    unsigned long lastGrindLatencyMs;  // grind latency terukur sesi itu (ms)
+    float lastGrindFinalWeightG;       // berat akhir sesi itu (g)
+    int lastGrindPulseCount;           // jumlah pulse correction
 };

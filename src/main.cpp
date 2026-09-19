@@ -428,6 +428,7 @@ static void loadSettingsFromNVS() {
     g_ui_state.confirmation_window_ms = settingsPrefs.getULong("confirm_ms", GRIND_LATENCY_CONFIRMATION_MS);
     g_ui_state.post_purge_enabled = settingsPrefs.getBool("purge_en", false);
     g_ui_state.post_purge_pulse_count = settingsPrefs.getInt("purge_cnt", GRIND_POST_PURGE_PULSE_COUNT_DEFAULT);
+    g_ui_state.stability_threshold_g = settingsPrefs.getFloat("stab_thresh", 0.3f);
     settingsPrefs.end();
     Serial.printf("[NVS] Settings dimuat -- tolerance=%.3fg max_pulses=%d settle=%lums coast_ratio=%.2f confirm_window=%lums post_purge=%s(%d)\n",
                   g_ui_state.accuracy_tolerance_g, g_ui_state.max_pulse_attempts,
@@ -453,6 +454,7 @@ extern void saveSettingsToNVS() {
     settingsPrefs.putULong("confirm_ms", g_ui_state.confirmation_window_ms);
     settingsPrefs.putBool("purge_en", g_ui_state.post_purge_enabled);
     settingsPrefs.putInt("purge_cnt", g_ui_state.post_purge_pulse_count);
+    settingsPrefs.putFloat("stab_thresh", g_ui_state.stability_threshold_g);
     settingsPrefs.end();
     Serial.printf("[NVS] Settings disimpan -- tolerance=%.3fg max_pulses=%d settle=%lums coast_ratio=%.2f confirm_window=%lums post_purge=%s(%d)\n",
                   g_ui_state.accuracy_tolerance_g, g_ui_state.max_pulse_attempts,
@@ -709,6 +711,13 @@ DebugSnapshot grind_get_debug_snapshot() {
     diagPrefs.begin("gbwdiag", true);  // read-only
     snap.lastCheckpoint = diagPrefs.getString("last_cp", "(belum ada)");
     snap.lastCheckpointMs = diagPrefs.getULong("last_cp_ms", 0);
+    snap.lastGrindWeightAtMotorStop = diagPrefs.getFloat("lg_stop_w", NAN);
+    snap.lastGrindPredictedCoast    = diagPrefs.getFloat("lg_pred_c", NAN);
+    snap.lastGrindActualCoast       = diagPrefs.getFloat("lg_act_c",  NAN);
+    snap.lastGrindCoastRatioUsed    = diagPrefs.getFloat("lg_ratio",  NAN);
+    snap.lastGrindLatencyMs         = diagPrefs.getULong("lg_latency", 0);
+    snap.lastGrindFinalWeightG      = diagPrefs.getFloat("lg_final",  NAN);
+    snap.lastGrindPulseCount        = diagPrefs.getInt("lg_pulses",   0);
     diagPrefs.end();
 
     return snap;
@@ -847,8 +856,9 @@ static void syncUiSettingsToGrindController() {
     grindController.setSettlingTimeMs(g_ui_state.settle_time_ms);  // BARU -- pola sama
     grindController.setCoastRatio(g_ui_state.coast_ratio);  // BARU -- pola sama
     grindController.setConfirmationWindowMs(g_ui_state.confirmation_window_ms);  // BARU -- pola sama
-    grindController.setPostPurgeEnabled(g_ui_state.post_purge_enabled);  // BARU -- pola sama
-    grindController.setPostPurgePulseCount(g_ui_state.post_purge_pulse_count);  // BARU -- pola sama
+    grindController.setPostPurgeEnabled(g_ui_state.post_purge_enabled);
+    grindController.setPostPurgePulseCount(g_ui_state.post_purge_pulse_count);
+    grindController.setStabilityThresholdG(g_ui_state.stability_threshold_g);
 }
 
 // ------------------------------------------------------------
@@ -931,6 +941,20 @@ static void handleGrindStateTransitionForUi() {
     if (now == GrindState::PULSE_CORRECTION) {
         ui_transition_to_pulse_correction();
     } else if (now == GrindState::COMPLETE || now == GrindState::ABORT) {
+        // Simpan last grind data ke NVS saat grind selesai (COMPLETE saja,
+        // bukan ABORT -- data karakterisasi hanya bermakna untuk grind
+        // yang benar-benar selesai normal).
+        if (now == GrindState::COMPLETE) {
+            diagPrefs.begin("gbwdiag", false);
+            diagPrefs.putFloat("lg_stop_w", grindController.lastGrindWeightAtMotorStop());
+            diagPrefs.putFloat("lg_pred_c", grindController.lastGrindPredictedCoast());
+            diagPrefs.putFloat("lg_act_c",  grindController.lastGrindActualCoast());
+            diagPrefs.putFloat("lg_ratio",  grindController.lastGrindCoastRatioUsed());
+            diagPrefs.putULong("lg_latency", grindController.lastGrindLatencyMs());
+            diagPrefs.putFloat("lg_final",  grindController.lastGrindFinalWeightG());
+            diagPrefs.putInt("lg_pulses",   grindController.lastGrindPulseCount());
+            diagPrefs.end();
+        }
         // FIX BUG (ditemukan lewat testing sistematis, dilaporkan
         // sebagai "pencet Start langsung lompat ke Finish Grind" saat
         // HX711 belum tersambung): GUARD BARU -- cuma navigasi ke Done

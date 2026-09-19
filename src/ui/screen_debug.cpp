@@ -41,6 +41,15 @@ static lv_obj_t* s_home_gesture_value = nullptr;
 static lv_obj_t* s_touch_recovery_value = nullptr;
 static lv_obj_t* s_last_checkpoint_value = nullptr;
 
+// LAST GRIND section
+static lv_obj_t* s_lg_stop_w_value = nullptr;
+static lv_obj_t* s_lg_pred_coast_value = nullptr;
+static lv_obj_t* s_lg_act_coast_value = nullptr;
+static lv_obj_t* s_lg_ratio_value = nullptr;
+static lv_obj_t* s_lg_latency_value = nullptr;
+static lv_obj_t* s_lg_final_value = nullptr;
+static lv_obj_t* s_lg_pulses_value = nullptr;
+
 static unsigned long s_lastRefreshMs = 0;
 #define DEBUG_REFRESH_INTERVAL_MS 300  // disepakati eksplisit -- lihat catatan header file ini
 
@@ -187,6 +196,30 @@ void ui_screen_debug_update(void) {
                         snap.lastCheckpoint != "grind_start");
         lv_obj_set_style_text_color(s_last_checkpoint_value, isAlarm ? COLOR_WARN : COLOR_TEXT_PRIMARY, 0);
     }
+
+    // LAST GRIND section
+    if (s_lg_stop_w_value == nullptr) return;
+    auto fmtF = [&](char* b, size_t sz, float v, const char* unit) {
+        if (isnan(v)) snprintf(b, sz, "--");
+        else snprintf(b, sz, "%.2f%s", v, unit);
+    };
+    char b[24];
+    fmtF(b, sizeof(b), snap.lastGrindWeightAtMotorStop, "g"); lv_label_set_text(s_lg_stop_w_value, b);
+    fmtF(b, sizeof(b), snap.lastGrindPredictedCoast, "g");    lv_label_set_text(s_lg_pred_coast_value, b);
+    fmtF(b, sizeof(b), snap.lastGrindActualCoast, "g");       lv_label_set_text(s_lg_act_coast_value, b);
+
+    // Warna actual coast: hijau kalau mendekati predicted (selisih <0.1g), kuning kalau jauh
+    if (!isnan(snap.lastGrindActualCoast) && !isnan(snap.lastGrindPredictedCoast)) {
+        float diff = fabsf(snap.lastGrindActualCoast - snap.lastGrindPredictedCoast);
+        lv_obj_set_style_text_color(s_lg_act_coast_value, diff < 0.1f ? COLOR_SUCCESS : COLOR_WARN, 0);
+    }
+
+    fmtF(b, sizeof(b), snap.lastGrindCoastRatioUsed, "x");   lv_label_set_text(s_lg_ratio_value, b);
+    if (snap.lastGrindLatencyMs > 0) snprintf(b, sizeof(b), "%lums", snap.lastGrindLatencyMs);
+    else snprintf(b, sizeof(b), "--");
+    lv_label_set_text(s_lg_latency_value, b);
+    fmtF(b, sizeof(b), snap.lastGrindFinalWeightG, "g");      lv_label_set_text(s_lg_final_value, b);
+    snprintf(b, sizeof(b), "%d", snap.lastGrindPulseCount);   lv_label_set_text(s_lg_pulses_value, b);
 }
 
 lv_obj_t* ui_screen_debug_create(void) {
@@ -260,6 +293,15 @@ lv_obj_t* ui_screen_debug_create(void) {
     s_home_gesture_value = create_debug_row(container, "Home gesture #");
     s_touch_recovery_value = create_debug_row(container, "Touch recovery #");
     s_last_checkpoint_value = create_debug_row(container, "Last checkpoint");
+
+    create_section_label(container, "LAST GRIND");
+    s_lg_stop_w_value      = create_debug_row(container, "Stop weight");
+    s_lg_pred_coast_value  = create_debug_row(container, "Pred. coast");
+    s_lg_act_coast_value   = create_debug_row(container, "Act. coast");
+    s_lg_ratio_value       = create_debug_row(container, "Coast ratio");
+    s_lg_latency_value     = create_debug_row(container, "Latency");
+    s_lg_final_value       = create_debug_row(container, "Final weight");
+    s_lg_pulses_value      = create_debug_row(container, "Pulses");
 
     lv_obj_t* back_btn = lv_btn_create(s_screen);
     lv_obj_set_size(back_btn, 220, 60);

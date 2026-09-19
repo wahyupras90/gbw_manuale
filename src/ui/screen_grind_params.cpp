@@ -27,6 +27,9 @@ static lv_obj_t* s_confirmation_window_value = nullptr;
 static lv_obj_t* s_post_purge_toggle_btn = nullptr;
 static lv_obj_t* s_post_purge_toggle_label = nullptr;
 static lv_obj_t* s_post_purge_pulse_count_value = nullptr;
+static lv_obj_t* s_stability_threshold_value = nullptr;
+static int s_stability_threshold_minus_repeat = 0;
+static int s_stability_threshold_plus_repeat = 0;
 
 static void ui_update_toggle_visual(lv_obj_t* btn, lv_obj_t* label, bool state);
 
@@ -197,6 +200,29 @@ static void post_purge_pulse_count_plus_cb(lv_event_t* e) {
     if (g_ui_state.post_purge_pulse_count > 5) g_ui_state.post_purge_pulse_count = 5;
     char buf[8]; snprintf(buf, sizeof(buf), "%d", g_ui_state.post_purge_pulse_count);
     lv_label_set_text(s_post_purge_pulse_count_value, buf);
+}
+
+static void stability_threshold_minus_cb(lv_event_t* e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_PRESSED) { s_stability_threshold_minus_repeat = 0; return; }
+    if (code != LV_EVENT_CLICKED && code != LV_EVENT_LONG_PRESSED_REPEAT) return;
+    if (code == LV_EVENT_LONG_PRESSED_REPEAT) s_stability_threshold_minus_repeat++;
+    float step = 0.1f * ui_repeat_step_multiplier(s_stability_threshold_minus_repeat);
+    g_ui_state.stability_threshold_g -= step;
+    if (g_ui_state.stability_threshold_g < 0.1f) g_ui_state.stability_threshold_g = 0.1f;
+    char buf[8]; snprintf(buf, sizeof(buf), "%.1f", g_ui_state.stability_threshold_g);
+    lv_label_set_text(s_stability_threshold_value, buf);
+}
+static void stability_threshold_plus_cb(lv_event_t* e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_PRESSED) { s_stability_threshold_plus_repeat = 0; return; }
+    if (code != LV_EVENT_CLICKED && code != LV_EVENT_LONG_PRESSED_REPEAT) return;
+    if (code == LV_EVENT_LONG_PRESSED_REPEAT) s_stability_threshold_plus_repeat++;
+    float step = 0.1f * ui_repeat_step_multiplier(s_stability_threshold_plus_repeat);
+    g_ui_state.stability_threshold_g += step;
+    if (g_ui_state.stability_threshold_g > 1.0f) g_ui_state.stability_threshold_g = 1.0f;
+    char buf[8]; snprintf(buf, sizeof(buf), "%.1f", g_ui_state.stability_threshold_g);
+    lv_label_set_text(s_stability_threshold_value, buf);
 }
 
 static void save_cb(lv_event_t* e) {
@@ -384,6 +410,10 @@ lv_obj_t* ui_screen_grind_params_create(void) {
     char purge_pulse_buf[8]; snprintf(purge_pulse_buf, sizeof(purge_pulse_buf), "%d", g_ui_state.post_purge_pulse_count);
     create_param_row(scroll_area, 628, "Purge Pulses", "Jumlah pulsa getar",
                      &s_post_purge_pulse_count_value, post_purge_pulse_count_minus_cb, post_purge_pulse_count_plus_cb, purge_pulse_buf);
+
+    char stab_buf[8]; snprintf(stab_buf, sizeof(stab_buf), "%.1f", g_ui_state.stability_threshold_g);
+    create_param_row(scroll_area, 736, "Stability", "Pre-grind stabil (g)",
+                     &s_stability_threshold_value, stability_threshold_minus_cb, stability_threshold_plus_cb, stab_buf);
 
     // SAVE button -- fixed di bawah, tidak ikut scroll (child s_screen)
     lv_obj_t* save_btn = lv_btn_create(s_screen);

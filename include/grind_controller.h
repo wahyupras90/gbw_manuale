@@ -133,6 +133,7 @@
 enum class GrindState {
     IDLE,
     VALIDATING,
+    WAIT_STABLE,      // BARU -- tunggu timbangan stabil sebelum auto-tare & motor ON. Timeout = settlingTimeMs_ (ikut setting Settle Time), kalau timeout grind tetap lanjut. Threshold = stabilityThresholdG_ (setting user, default 0.3g).
     STARTING,
     WAIT_FLOW_START,  // motor ON, menunggu flow >= threshold TERKONFIRMASI selama GRIND_LATENCY_CONFIRMATION_MS -- TIDAK ADA predictive stop di state ini, hanya stall timeout yang berlaku (lihat catatan safety di bawah)
     GRINDING,         // flow sudah confirmed, predictive stop aktif (motor_stop_target_weight_g dihitung real-time)
@@ -249,6 +250,10 @@ public:
     // keputusan eksplisit untuk versi pertama fitur ini.
     void setPostPurgeEnabled(bool enabled) { pendingPostPurgeEnabled_ = enabled; }
     void setPostPurgePulseCount(int count) { pendingPostPurgePulseCount_ = count; }
+    // BARU -- stability threshold untuk WAIT_STABLE state (pre-grind).
+    // Pending pattern sama seperti parameter lain -- berlaku mulai
+    // startGrind() berikutnya, bukan langsung mengubah sesi aktif.
+    void setStabilityThresholdG(float threshG) { pendingStabilityThresholdG_ = threshG; }
 
     // Getter parameter EFEKTIF (yang sedang/terakhir dipakai sesi
     // grind, BUKAN pending value dari setter di atas yang belum
@@ -256,11 +261,22 @@ public:
     // benar-benar aktif, bukan sekadar apa yang baru diketik operator.
     float accuracyToleranceG() const { return accuracyToleranceG_; }
     int maxPulseAttempts() const { return maxPulseAttempts_; }
-    unsigned long settlingTimeMs() const { return settlingTimeMs_; }  // BARU
-    float coastRatio() const { return coastRatio_; }  // BARU
-    unsigned long confirmationWindowMs() const { return confirmationWindowMs_; }  // BARU
-    bool postPurgeEnabled() const { return postPurgeEnabled_; }  // BARU
-    int postPurgePulseCount() const { return postPurgePulseCount_; }  // BARU
+    unsigned long settlingTimeMs() const { return settlingTimeMs_; }
+    float coastRatio() const { return coastRatio_; }
+    unsigned long confirmationWindowMs() const { return confirmationWindowMs_; }
+    bool postPurgeEnabled() const { return postPurgeEnabled_; }
+    int postPurgePulseCount() const { return postPurgePulseCount_; }
+    float stabilityThresholdG() const { return stabilityThresholdG_; }
+
+    // Last grind data -- dibaca main.cpp untuk disimpan ke NVS dan
+    // ditampilkan di Debug screen section LAST GRIND.
+    float lastGrindWeightAtMotorStop() const { return lastGrindWeightAtMotorStop_; }
+    float lastGrindPredictedCoast() const { return lastGrindPredictedCoast_; }
+    float lastGrindActualCoast() const { return lastGrindActualCoast_; }
+    float lastGrindCoastRatioUsed() const { return lastGrindCoastRatioUsed_; }
+    unsigned long lastGrindLatencyMs() const { return lastGrindLatencyMs_; }
+    float lastGrindFinalWeightG() const { return lastGrindFinalWeightG_; }
+    int lastGrindPulseCount() const { return lastGrindPulseCount_; }
 
     // ------------------------------------------------------------
     // Getter publik -- dibaca main.cpp untuk sync ke UI/command
@@ -399,7 +415,25 @@ private:
     int pendingPostPurgePulseCount_;
     int postPurgePulsesRemaining_;
 
+    // WAIT_STABLE -- pre-grind stability check
+    float stabilityThresholdG_;
+    float pendingStabilityThresholdG_;
+    unsigned long waitStableStartMs_;   // kapan WAIT_STABLE dimulai (untuk timeout)
+    unsigned long waitStableOkSinceMs_; // kapan variasi berat mulai masuk threshold (untuk durasi 500ms)
+    float waitStableLastWeight_;        // berat sample sebelumnya untuk hitung variasi
+
+    // LAST GRIND DATA -- disimpan di finishAsComplete(), dibaca Debug screen
+    // Semua float/ulong, disimpan ke NVS "gbwdiag" setelah grind selesai.
+    float lastGrindWeightAtMotorStop_;
+    float lastGrindPredictedCoast_;   // = motorStopTargetWeightG_ saat motor stop (gram yang diprediksi masih akan jatuh)
+    float lastGrindActualCoast_;      // = finalWeightG_ - weightAtMotorStop
+    float lastGrindCoastRatioUsed_;
+    unsigned long lastGrindLatencyMs_;
+    float lastGrindFinalWeightG_;
+    int lastGrindPulseCount_;
+
     void transitionTo(GrindState newState);
+    void startMotorAndBeginGrind();  // BARU -- dipanggil dari WAIT_STABLE di update()
     void doAbort(AbortReason reason);
     void checkStall(unsigned long nowMs);
     void checkTimeout(unsigned long nowMs);
