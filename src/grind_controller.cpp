@@ -118,6 +118,7 @@ GrindController::GrindController(WeightFilter* weightFilter, MotorController* mo
       stabilityThresholdG_(0.3f), pendingStabilityThresholdG_(0.3f),
       waitStableStartMs_(0), waitStableOkSinceMs_(0), waitStableLastWeight_(NAN),
       // BARU -- last grind data, diinisialisasi NAN/0 sampai sesi pertama selesai.
+      capturedWeightAtMotorStop_(NAN),
       lastGrindWeightAtMotorStop_(NAN), lastGrindPredictedCoast_(NAN),
       lastGrindActualCoast_(NAN), lastGrindCoastRatioUsed_(NAN),
       lastGrindLatencyMs_(0), lastGrindFinalWeightG_(NAN), lastGrindPulseCount_(0) {}
@@ -273,6 +274,7 @@ bool GrindController::startGrind(float targetDoseG) {
     waitStableLastWeight_ = NAN;
 
     // Reset state model real-time untuk sesi baru.
+    capturedWeightAtMotorStop_ = NAN;  // diisi ulang di stopMotorOrAbort() saat motor OFF
     candidateFlowStartMs_ = 0;
     flowStartConfirmed_ = false;
     grindLatencyMs_ = 0;
@@ -393,6 +395,10 @@ bool GrindController::stopMotorOrAbort() {
     lastMotorRttMs_ = r.rttMs;
     if (r.success) {
         motorStoppedMs_ = r.responseRecvMs;
+        // Capture berat aktual TEPAT saat motor OFF dikonfirmasi berhasil.
+        // Ini yang dipakai finishAsComplete() untuk actualCoast yang benar.
+        // (bukan rekonstruksi target - predictedCoast)
+        capturedWeightAtMotorStop_ = weightFilter_ ? weightFilter_->latestWeight() : NAN;
         return true;
     }
 
@@ -401,6 +407,7 @@ bool GrindController::stopMotorOrAbort() {
     lastMotorRttMs_ = retry.rttMs;
     if (retry.success) {
         motorStoppedMs_ = retry.responseRecvMs;
+        capturedWeightAtMotorStop_ = weightFilter_ ? weightFilter_->latestWeight() : NAN;
         return true;
     }
 
@@ -914,12 +921,14 @@ void GrindController::finishAsComplete() {
                   finalWeightG_, targetAbsoluteG_, errorG, pulseAttempts_, grindDurationMs(), grindLatencyMs_);
 
     // Simpan data karakterisasi sesi ini untuk Debug screen LAST GRIND.
-    // weightAtMotorStop = berat saat motor berhenti = targetAbsoluteG_ - motorStopTargetWeightG_
-    // (motorStopTargetWeightG_ = gram yang diprediksi masih akan jatuh setelah motor OFF).
-    float weightAtStop = targetAbsoluteG_ - motorStopTargetWeightG_;
-    lastGrindWeightAtMotorStop_ = weightAtStop;
+    // capturedWeightAtMotorStop_ diisi di stopMotorOrAbort() tepat saat
+    // motor OFF dikonfirmasi -- ini berat AKTUAL, bukan rekonstruksi.
+    // actualCoast = finalWeight - actualWeightAtStop (bukan target - predicted).
+    lastGrindWeightAtMotorStop_ = capturedWeightAtMotorStop_;
     lastGrindPredictedCoast_    = motorStopTargetWeightG_;
-    lastGrindActualCoast_       = finalWeightG_ - weightAtStop;
+    lastGrindActualCoast_       = isnan(capturedWeightAtMotorStop_)
+                                  ? NAN
+                                  : finalWeightG_ - capturedWeightAtMotorStop_;
     lastGrindCoastRatioUsed_    = coastRatio_;
     lastGrindLatencyMs_         = grindLatencyMs_;
     lastGrindFinalWeightG_      = finalWeightG_;

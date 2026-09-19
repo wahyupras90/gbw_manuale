@@ -424,9 +424,10 @@ private:
 
     // LAST GRIND DATA -- disimpan di finishAsComplete(), dibaca Debug screen
     // Semua float/ulong, disimpan ke NVS "gbwdiag" setelah grind selesai.
+    float capturedWeightAtMotorStop_; // berat aktual dari weightFilter_ TEPAT saat motor OFF dikonfirmasi
     float lastGrindWeightAtMotorStop_;
     float lastGrindPredictedCoast_;   // = motorStopTargetWeightG_ saat motor stop (gram yang diprediksi masih akan jatuh)
-    float lastGrindActualCoast_;      // = finalWeightG_ - weightAtMotorStop
+    float lastGrindActualCoast_;      // = finalWeightG_ - capturedWeightAtMotorStop_ (bukan rekonstruksi)
     float lastGrindCoastRatioUsed_;
     unsigned long lastGrindLatencyMs_;
     float lastGrindFinalWeightG_;
