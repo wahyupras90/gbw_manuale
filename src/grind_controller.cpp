@@ -754,18 +754,36 @@ void GrindController::startPostPurgePulse() {
 void GrindController::evaluatePostPurgeProgress(unsigned long sampleTimestampMs) {
     (void)sampleTimestampMs;
 
-    if (millis() - motorStoppedMs_ < GRIND_PURGE_PULSE_GAP_MS) {
-        return;
-    }
-
-    saveCheckpoint("purge_eval");
-
     if (postPurgePulsesRemaining_ > 0) {
+        // Masih ada pulsa berikutnya -- tunggu GAP pendek saja (80ms
+        // supaya motor benar-benar OFF sebelum nyala lagi, bukan untuk
+        // settling berat -- kopi dari pulsa ini belum perlu settle
+        // karena pulsa berikutnya akan menggerakkan berat lagi).
+        if (millis() - motorStoppedMs_ < GRIND_PURGE_PULSE_GAP_MS) {
+            return;
+        }
+        saveCheckpoint("purge_eval");
         startPostPurgePulse();
         return;
     }
 
-    Serial.println("[GRIND] Post-purge selesai (semua pulsa habis) -- lanjut cek target.");
+    // Pulse TERAKHIR sudah selesai -- tunggu settlingTimeMs_ PENUH
+    // (bukan cuma GRIND_PURGE_PULSE_GAP_MS = 150ms) sebelum baca
+    // berat dan ambil keputusan final. Ini fix untuk P0 yang ditemukan
+    // lewat review: 150ms setelah pulse terakhir BUKAN settling yang
+    // proper -- kopi yang dirontokkan purge bisa masih jatuh beberapa
+    // ratus ms setelah motor OFF, menyebabkan finishPostPurgeAndDecide()
+    // membaca berat yang terlalu rendah dan salah memulai pulse
+    // correction (lalu kopi purge yang tertunda jatuh di tengah pulse
+    // correction -> overcorrection). Pakai settlingTimeMs_ yang sama
+    // dengan WAIT_SETTLE dan evaluatePulseProgress() -- konsisten,
+    // tidak ada magic number baru.
+    if (millis() - motorStoppedMs_ < settlingTimeMs_) {
+        return;
+    }
+
+    saveCheckpoint("purge_eval");
+    Serial.println("[GRIND] Post-purge selesai (semua pulsa habis, settling selesai) -- lanjut cek target.");
     finishPostPurgeAndDecide();
 }
 
