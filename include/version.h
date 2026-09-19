@@ -5,4 +5,4 @@
 // --dirty (contoh: 'v1.0.1', 'v1.0.1-3-gabc1234' kalau ada commit
 // setelah tag terakhir, 'v1.0.1-dirty' kalau ada perubahan belum
 // di-commit saat compile).
-#define FIRMWARE_VERSION "v1.0.29-1-g452bf5d"
+#define FIRMWARE_VERSION "v1.0.29"

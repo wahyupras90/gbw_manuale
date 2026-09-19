@@ -118,7 +118,7 @@ GrindController::GrindController(WeightFilter* weightFilter, MotorController* mo
       stabilityThresholdG_(0.3f), pendingStabilityThresholdG_(0.3f),
       waitStableStartMs_(0), waitStableOkSinceMs_(0), waitStableLastWeight_(NAN),
       // BARU -- last grind data, diinisialisasi NAN/0 sampai sesi pertama selesai.
-      capturedWeightAtMotorStop_(NAN),
+      predictiveStopWeightG_(NAN),
       lastGrindWeightAtMotorStop_(NAN), lastGrindPredictedCoast_(NAN),
       lastGrindActualCoast_(NAN), lastGrindCoastRatioUsed_(NAN),
       lastGrindLatencyMs_(0), lastGrindFinalWeightG_(NAN), lastGrindPulseCount_(0) {}
@@ -274,7 +274,7 @@ bool GrindController::startGrind(float targetDoseG) {
     waitStableLastWeight_ = NAN;
 
     // Reset state model real-time untuk sesi baru.
-    capturedWeightAtMotorStop_ = NAN;  // diisi ulang di stopMotorOrAbort() saat motor OFF
+    predictiveStopWeightG_ = NAN;  // diisi HANYA di call site predictive stop
     candidateFlowStartMs_ = 0;
     flowStartConfirmed_ = false;
     grindLatencyMs_ = 0;
@@ -395,10 +395,6 @@ bool GrindController::stopMotorOrAbort() {
     lastMotorRttMs_ = r.rttMs;
     if (r.success) {
         motorStoppedMs_ = r.responseRecvMs;
-        // Capture berat aktual TEPAT saat motor OFF dikonfirmasi berhasil.
-        // Ini yang dipakai finishAsComplete() untuk actualCoast yang benar.
-        // (bukan rekonstruksi target - predictedCoast)
-        capturedWeightAtMotorStop_ = weightFilter_ ? weightFilter_->latestWeight() : NAN;
         return true;
     }
 
@@ -407,7 +403,6 @@ bool GrindController::stopMotorOrAbort() {
     lastMotorRttMs_ = retry.rttMs;
     if (retry.success) {
         motorStoppedMs_ = retry.responseRecvMs;
-        capturedWeightAtMotorStop_ = weightFilter_ ? weightFilter_->latestWeight() : NAN;
         return true;
     }
 
@@ -702,6 +697,11 @@ void GrindController::evaluateGrindProgress(unsigned long sampleTimestampMs) {
                       effectiveLatencyMsLog * coastRatio_, motorStopTargetWeightG_);
         saveCheckpoint("motor_stop");
 
+        // Capture berat aktual TEPAT saat predictive stop -- hanya di sini,
+        // TIDAK di pulse correction/post-purge, supaya data Last Grind
+        // benar-benar mengukur coast dari predictive stop.
+        predictiveStopWeightG_ = weightFilter_ ? weightFilter_->latestWeight() : NAN;
+
         if (!stopMotorOrAbort()) {
             return;
         }
@@ -921,14 +921,14 @@ void GrindController::finishAsComplete() {
                   finalWeightG_, targetAbsoluteG_, errorG, pulseAttempts_, grindDurationMs(), grindLatencyMs_);
 
     // Simpan data karakterisasi sesi ini untuk Debug screen LAST GRIND.
-    // capturedWeightAtMotorStop_ diisi di stopMotorOrAbort() tepat saat
-    // motor OFF dikonfirmasi -- ini berat AKTUAL, bukan rekonstruksi.
-    // actualCoast = finalWeight - actualWeightAtStop (bukan target - predicted).
-    lastGrindWeightAtMotorStop_ = capturedWeightAtMotorStop_;
+    // predictiveStopWeightG_ diisi HANYA di call site predictive stop
+    // (bukan di pulse correction/post-purge), sehingga actualCoast
+    // benar-benar mengukur coast dari predictive motor OFF ke final weight.
+    lastGrindWeightAtMotorStop_ = predictiveStopWeightG_;
     lastGrindPredictedCoast_    = motorStopTargetWeightG_;
-    lastGrindActualCoast_       = isnan(capturedWeightAtMotorStop_)
+    lastGrindActualCoast_       = isnan(predictiveStopWeightG_)
                                   ? NAN
-                                  : finalWeightG_ - capturedWeightAtMotorStop_;
+                                  : finalWeightG_ - predictiveStopWeightG_;
     lastGrindCoastRatioUsed_    = coastRatio_;
     lastGrindLatencyMs_         = grindLatencyMs_;
     lastGrindFinalWeightG_      = finalWeightG_;
