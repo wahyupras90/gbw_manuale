@@ -75,6 +75,23 @@ public:
     float currentScale() const { return scaleUnitsPerGram_; }
     bool isCalibrationSet() const { return calibrationSet_; }
 
+    // BARU -- expose raw ADC dari panggilan readWeightGrams()
+    // TERAKHIR (BUKAN panggilan HX711 baru -- readWeightGrams() SUDAH
+    // memanggil hx711_.read() secara internal, nilainya dulu DIBUANG
+    // setelah dikonversi ke gram; sekarang DISIMPAN ke lastRawReading_
+    // sebelum konversi, lihat implementasi di hx711_reader.cpp).
+    // Disepakati eksplisit setelah bug ditemukan: Raw ADC di Debug
+    // screen SELALU "belum ready" (rebutan siklus ready HX711 dengan
+    // loop(), SAMA akar masalah dengan bug "Berat (gram) selalu NAN"
+    // yang sudah pernah diperbaiki -- fix itu pakai cache dari
+    // weightFilter, TAPI Raw ADC sendiri TIDAK PERNAH ikut diperbaiki
+    // sampai sekarang, karena dulu tidak ada field lain yang
+    // bergantung padanya). hasLastRawReading() false kalau
+    // readWeightGrams() belum pernah dipanggil sejak boot (atau
+    // kalibrasi belum diset -- lihat readWeightGrams()).
+    long lastRawReading() const { return lastRawReading_; }
+    bool hasLastRawReading() const { return hasLastRawReading_; }
+
 private:
     HX711 hx711_;
     uint8_t doutPin_;
@@ -83,4 +100,8 @@ private:
     long offset_;
     float scaleUnitsPerGram_;
     bool calibrationSet_;
+    // BARU -- cache raw ADC dari readWeightGrams() TERAKHIR, lihat
+    // catatan lengkap di lastRawReading()/hasLastRawReading() di atas.
+    long lastRawReading_;
+    bool hasLastRawReading_;
 };
