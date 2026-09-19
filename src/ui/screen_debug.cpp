@@ -39,6 +39,7 @@ static lv_obj_t* s_flow_rate_value = nullptr;
 static lv_obj_t* s_reset_reason_value = nullptr;
 static lv_obj_t* s_home_gesture_value = nullptr;
 static lv_obj_t* s_touch_recovery_value = nullptr;
+static lv_obj_t* s_last_checkpoint_value = nullptr;
 
 static unsigned long s_lastRefreshMs = 0;
 #define DEBUG_REFRESH_INTERVAL_MS 300  // disepakati eksplisit -- lihat catatan header file ini
@@ -168,6 +169,24 @@ void ui_screen_debug_update(void) {
     snprintf(buf, sizeof(buf), "%lu", snap.touchRecoveryCount);
     lv_label_set_text(s_touch_recovery_value, buf);
     lv_obj_set_style_text_color(s_touch_recovery_value, snap.touchRecoveryCount > 0 ? COLOR_WARN : COLOR_TEXT_PRIMARY, 0);
+
+    // Last checkpoint -- warna WARN kalau tidak diakhiri label "selesai"
+    // yang diketahui (_success, _inaccurate, done_ok, done_over, grind_start
+    // bukan indikator masalah). Deteksi pakai indexOf() String Arduino
+    // (bukan strcmp -- checkpoint bisa bermacam-macam, cukup cek suffix/substring).
+    {
+        char cpBuf[32];
+        if (snap.lastCheckpointMs > 0) {
+            snprintf(cpBuf, sizeof(cpBuf), "%s (%lums)", snap.lastCheckpoint.c_str(), snap.lastCheckpointMs);
+        } else {
+            snprintf(cpBuf, sizeof(cpBuf), "%s", snap.lastCheckpoint.c_str());
+        }
+        lv_label_set_text(s_last_checkpoint_value, cpBuf);
+        bool isAlarm = (snap.lastCheckpoint.indexOf("done") < 0 &&
+                        snap.lastCheckpoint != "(belum ada)" &&
+                        snap.lastCheckpoint != "grind_start");
+        lv_obj_set_style_text_color(s_last_checkpoint_value, isAlarm ? COLOR_WARN : COLOR_TEXT_PRIMARY, 0);
+    }
 }
 
 lv_obj_t* ui_screen_debug_create(void) {
@@ -240,6 +259,7 @@ lv_obj_t* ui_screen_debug_create(void) {
     s_reset_reason_value = create_debug_row(container, "Reset reason");
     s_home_gesture_value = create_debug_row(container, "Home gesture #");
     s_touch_recovery_value = create_debug_row(container, "Touch recovery #");
+    s_last_checkpoint_value = create_debug_row(container, "Last checkpoint");
 
     lv_obj_t* back_btn = lv_btn_create(s_screen);
     lv_obj_set_size(back_btn, 220, 60);

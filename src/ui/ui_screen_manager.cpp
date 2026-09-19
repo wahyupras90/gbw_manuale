@@ -16,6 +16,7 @@ extern lv_obj_t* ui_screen_debug_create(void);
 extern void ui_screen_debug_update(void);
 extern lv_obj_t* ui_screen_calibration_wizard_create(void);
 extern void ui_screen_calibration_wizard_reset(void);
+extern lv_obj_t* ui_screen_grind_params_create(void);
 
 // Update function tiap screen (dipanggil dari main loop saat screen itu aktif)
 extern void ui_screen_idle_update(void);
@@ -57,7 +58,7 @@ ui_shared_state_t g_ui_state = {
 static ui_screen_id_t s_current_screen = UI_SCREEN_IDLE;
 static ui_screen_id_t s_screen_before_settings = UI_SCREEN_IDLE;  // untuk tombol back di Settings
 
-static lv_obj_t* s_screens[9] = {nullptr};  // dinaikkan 8->9 -- UI_SCREEN_CALIBRATION_WIZARD ditambahkan
+static lv_obj_t* s_screens[10] = {nullptr};  // dinaikkan 9->10 -- UI_SCREEN_GRIND_PARAMS ditambahkan
 
 // ------------------------------------------------------------
 // GETTER BARU -- dipakai main.cpp (handleGrindStateTransitionForUi())
@@ -109,6 +110,7 @@ static lv_obj_t* get_or_create_screen(ui_screen_id_t id) {
         case UI_SCREEN_MANUAL_GRIND:     s_screens[id] = ui_screen_manual_grind_create(); break;
         case UI_SCREEN_DEBUG:            s_screens[id] = ui_screen_debug_create(); break;
         case UI_SCREEN_CALIBRATION_WIZARD: s_screens[id] = ui_screen_calibration_wizard_create(); break;
+        case UI_SCREEN_GRIND_PARAMS:     s_screens[id] = ui_screen_grind_params_create(); break;
     }
     return s_screens[id];
 }
@@ -232,6 +234,15 @@ void ui_open_calibration_wizard(lv_event_t* e) {
 
 void ui_close_calibration_wizard(lv_event_t* e) {
     navigate_to(UI_SCREEN_DEBUG);
+}
+
+// Grind Parameters -- diakses dari Settings, kembali ke Settings
+void ui_open_grind_params(lv_event_t* e) {
+    navigate_to(UI_SCREEN_GRIND_PARAMS);
+}
+
+void ui_close_grind_params(lv_event_t* e) {
+    navigate_to(UI_SCREEN_SETTINGS);
 }
 
 void ui_confirm_target(float target_g) {

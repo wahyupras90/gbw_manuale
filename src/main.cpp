@@ -206,7 +206,39 @@ void debugScaleTare() {
 static Preferences settingsPrefs;
 
 // ============================================================
-// WIZARD KALIBRASI HX711 2-TITIK -- BARU. Dipanggil dari
+// CHECKPOINT DIAGNOSTIK NVS -- tulis label titik eksekusi ke flash
+// (namespace "gbwdiag", terpisah dari "gbw" settings) agar bisa
+// dibaca SETELAH reboot/freeze tanpa perlu Serial/USB. Berguna untuk
+// mengetahui di mana persis firmware berhenti sebelum reboot POWERON
+// yang terjadi di tengah sesi grind (tidak bisa diketahui dari
+// Debug screen karena counter-nya RAM-only dan ter-reset saat boot).
+//
+// saveCheckpoint() sengaja dibuat SESIMPEL mungkin -- Preferences
+// begin()/end() tiap panggilan (bukan biarkan terbuka) supaya:
+// (a) data pasti ter-flush ke flash, tidak cuma di buffer (Preferences
+//     Arduino di ESP32 sudah menggunakan NVS yang di-commit tiap
+//     putString(), tapi begin(false)/end() eksplisit menghilangkan
+//     ambiguitas), (b) aman dipanggil dari mana saja tanpa state
+//     "apakah Preferences sedang terbuka?" -- tidak ada shared state
+//     antara saveCheckpoint() dan settingsPrefs/diagPrefs lain.
+//
+// LABEL -- maksimal 14 karakter (batas aman NVS key + overhead), pola
+// <konteks>_<tahap>. Daftar lengkap: lihat titik-titik pemanggilan
+// di grind_controller.cpp dan grind_start() di main.cpp di bawah.
+//
+// MEMBACA CHECKPOINT: lewat Debug screen -> field "Last checkpoint"
+// yang ditambahkan ke DebugSnapshot dan screen_debug.cpp.
+// ============================================================
+static Preferences diagPrefs;
+
+void saveCheckpoint(const char* label) {
+    diagPrefs.begin("gbwdiag", false);
+    diagPrefs.putString("last_cp", label);
+    diagPrefs.putULong("last_cp_ms", millis());
+    diagPrefs.end();
+}
+
+
 // screen_calibration_wizard.cpp (UI_SCREEN_CALIBRATION_WIZARD).
 // Menggantikan proses "kirim data ke Claude, hitung manual, edit
 // config.h, compile, OTA" yang sebelumnya perlu tiap kali scale HX711
@@ -540,6 +572,7 @@ bool grind_start(float target_g) {
     // bawah ini akan tetap menolak lewat jalur hasSample() yang sudah
     // ada (lihat grind_controller.cpp), TIDAK ada perilaku baru yang
     // diam-diam menganggap sistem siap padahal belum dikalibrasi.
+    saveCheckpoint("grind_start");
     return grindController.startGrind(target_g);
 }
 
@@ -666,6 +699,17 @@ DebugSnapshot grind_get_debug_snapshot() {
     snap.resetReasonStr = s_resetReasonStr;
     snap.homeGestureCount = ui_home_gesture_count();
     snap.touchRecoveryCount = lv_port_touch_recovery_count();
+
+    // Baca checkpoint terakhir dari NVS -- SELALU baca tiap panggilan
+    // (bukan di-cache RAM) karena saveCheckpoint() bisa menulis kapan
+    // saja dari loop()/grind_controller.cpp, dan grind_get_debug_snapshot()
+    // dipanggil tiap ~300ms dari screen_debug.cpp -- frekuensi baca NVS
+    // ini diterima karena NVS ESP32 membaca dari flash cache (bukan
+    // erase/write ulang seperti putString()), aman untuk frekuensi ini.
+    diagPrefs.begin("gbwdiag", true);  // read-only
+    snap.lastCheckpoint = diagPrefs.getString("last_cp", "(belum ada)");
+    snap.lastCheckpointMs = diagPrefs.getULong("last_cp_ms", 0);
+    diagPrefs.end();
 
     return snap;
 }

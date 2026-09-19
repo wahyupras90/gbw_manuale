@@ -1,4 +1,5 @@
 #pragma once
+#include <Arduino.h>  // String -- dibutuhkan field lastCheckpoint di bawah
 
 // ============================================================
 // DebugSnapshot -- struct kecil dipakai bersama main.cpp (produsen,
@@ -45,4 +46,16 @@ struct DebugSnapshot {
     const char* resetReasonStr;
     unsigned long homeGestureCount;
     unsigned long touchRecoveryCount;
+
+    // --- CHECKPOINT DIAGNOSTIK NVS (BARU) -- titik eksekusi terakhir
+    // yang berhasil ditulis ke NVS oleh saveCheckpoint() (main.cpp)
+    // sebelum reboot/freeze terjadi. Berbeda dari 3 field di atas
+    // (RAM-only, ter-reset tiap boot), checkpoint ini BERTAHAN LINTAS
+    // REBOOT karena disimpan ke flash NVS namespace "gbwdiag". Berguna
+    // untuk mengetahui DI MANA PERSIS firmware berhenti saat terjadi
+    // reboot POWERON di tengah sesi grind (Reset Reason=POWERON tapi
+    // counter RAM sudah ter-reset, jadi tidak bisa tahu dari counter).
+    // Dibaca lewat Debug screen -> field "Last checkpoint".
+    String lastCheckpoint;       // label terakhir, "(belum ada)" kalau NVS kosong
+    unsigned long lastCheckpointMs;  // millis() saat checkpoint itu ditulis (dari sesi SEBELUMNYA)
 };

@@ -1,6 +1,12 @@
 #include "grind_controller.h"
 #include <math.h>
 #include <algorithm>
+#include <cstdio>
+
+// saveCheckpoint() didefinisikan di main.cpp (namespace NVS "gbwdiag")
+// -- dipakai di seluruh file ini untuk mencatat titik eksekusi ke
+// flash agar bisa dibaca lewat Debug screen setelah reboot/freeze.
+extern void saveCheckpoint(const char* label);
 
 // Kapasitas riwayat flow rate per sesi -- dipakai untuk hitung P95
 // pulsa (lihat startGrind()/onWeightSample()). Ukuran tetap di stack,
@@ -162,6 +168,12 @@ void GrindController::doAbort(AbortReason reason) {
 
     Serial.printf("[GRIND] ABORT -- reason=%d, berat saat ini=%.2fg, target=%.2fg\n",
                   (int)reason, finalWeightG_, targetAbsoluteG_);
+
+    // Checkpoint NVS -- label encode reason number supaya bisa dibedakan
+    // (STALL vs HARD_OVERSHOOT vs MOTOR_OFF_FAILED dst) dari Debug screen.
+    char abortLabel[15];
+    snprintf(abortLabel, sizeof(abortLabel), "abort_r%d", (int)reason);
+    saveCheckpoint(abortLabel);
 
     transitionTo(GrindState::ABORT);
 }
@@ -489,6 +501,7 @@ void GrindController::evaluateFlowStartConfirmation(unsigned long sampleTimestam
             candidateFlowStartMs_ = sampleTimestampMs;
             Serial.printf("[GRIND] Flow candidate terdeteksi @ %lums (flow=%.2fgps) -- menunggu konfirmasi %lums...\n",
                           sampleTimestampMs, flow.flowRateGps, confirmationWindowMs_);
+            saveCheckpoint("flow_cand_ok");
         } else if (sampleTimestampMs - candidateFlowStartMs_ >= confirmationWindowMs_) {
             // Window konfirmasi terpenuhi TANPA putus (tidak ada
             // sample di bawah threshold di antaranya, karena kalau
@@ -520,6 +533,7 @@ void GrindController::evaluateFlowStartConfirmation(unsigned long sampleTimestam
             motorStopTargetWeightG_ = flow.flowRateGps * (effectiveLatencyMsInit * coastRatio_) / 1000.0f;
             Serial.printf("[GRIND] Flow start CONFIRMED (window %lums terpenuhi) -- grind_latency=%lums (effective=%.0fms utk model), flow=%.2fgps\n",
                           confirmationWindowMs_, grindLatencyMs_, effectiveLatencyMsInit, flow.flowRateGps);
+            saveCheckpoint("flow_confirmed");
             transitionTo(GrindState::GRINDING);
         }
         // else: masih dalam window konfirmasi, belum genap confirmationWindowMs_ -- tunggu sample berikutnya.
@@ -630,11 +644,13 @@ void GrindController::evaluateGrindProgress(unsigned long sampleTimestampMs) {
         Serial.printf("[GRIND] Predictive stop -- berat %.2fg >= threshold %.2fg (grind_latency=%lums effective_latency=%.0fms coast=%.0fms motor_stop_target=%.2fg)\n",
                       currentWeight, stopThreshold, grindLatencyMs_, effectiveLatencyMsLog,
                       effectiveLatencyMsLog * coastRatio_, motorStopTargetWeightG_);
+        saveCheckpoint("motor_stop");
 
         if (!stopMotorOrAbort()) {
-            return;  // doAbort(MOTOR_OFF_FAILED) sudah dipanggil di dalam
+            return;
         }
 
+        saveCheckpoint("wait_settle");
         transitionTo(GrindState::WAIT_SETTLE);
     }
 }
@@ -645,11 +661,7 @@ void GrindController::evaluateGrindProgress(unsigned long sampleTimestampMs) {
 // ------------------------------------------------------------
 void GrindController::startPulse(unsigned long nowMs) {
     (void)nowMs;
-
-    // CATATAN ARSITEKTUR (dipertahankan dari versi sebelumnya): delay()
-    // di bawah untuk pulsa ON itu BLOCKING (30-250ms). Diterima untuk
-    // trial awal ini -- lihat README untuk rencana non-blocking di
-    // firmware produksi final.
+    saveCheckpoint("pulse_entry");
 
     if (pulseAttempts_ >= maxPulseAttempts_) {
         finalWeightG_ = weightFilter_->latestWeight();
@@ -659,7 +671,7 @@ void GrindController::startPulse(unsigned long nowMs) {
     }
 
     float currentWeight = weightFilter_->latestWeight();
-    float errorG = targetAbsoluteG_ - currentWeight;  // positif = masih kurang
+    float errorG = targetAbsoluteG_ - currentWeight;
 
     if (errorG <= 0) {
         finalWeightG_ = currentWeight;
@@ -667,16 +679,10 @@ void GrindController::startPulse(unsigned long nowMs) {
         return;
     }
 
-    // Flow untuk pulsa: P95 SESI INI (dihitung sekali di WAIT_SETTLE
-    // sebelum pulsa pertama). Fallback ke GRIND_PULSE_FLOW_RATE_FALLBACK_GPS
-    // kalau P95 tidak tersedia (mis. tidak ada sample flow terekam
-    // sama sekali selama GRINDING -- kondisi anomali).
     float estimatedFlow = !isnan(sessionPulseFlowGps_) ? sessionPulseFlowGps_ : GRIND_PULSE_FLOW_RATE_FALLBACK_GPS;
     if (isnan(sessionPulseFlowGps_)) {
         Serial.println("[GRIND] Pulse -- P95 sesi tidak tersedia, pakai fallback ESTIMASI (bukan hasil pengukuran).");
     }
-    // Clamp ke rentang masuk akal -- sama seperti versi sebelumnya &
-    // upstream (get_clamped_pulse_flow_rate()).
     if (estimatedFlow < GRIND_FLOW_RATE_MIN_SANE_GPS) {
         estimatedFlow = GRIND_PULSE_FLOW_RATE_FALLBACK_GPS;
     } else if (estimatedFlow > GRIND_FLOW_RATE_MAX_SANE_GPS) {
@@ -684,17 +690,14 @@ void GrindController::startPulse(unsigned long nowMs) {
     }
 
     float durationMs = (errorG / estimatedFlow) * 1000.0f;
-    if (durationMs < GRIND_MIN_PULSE_DURATION_MS) {
-        durationMs = GRIND_MIN_PULSE_DURATION_MS;
-    }
-    if (durationMs > GRIND_MAX_PULSE_DURATION_MS) {
-        durationMs = GRIND_MAX_PULSE_DURATION_MS;
-    }
+    if (durationMs < GRIND_MIN_PULSE_DURATION_MS) durationMs = GRIND_MIN_PULSE_DURATION_MS;
+    if (durationMs > GRIND_MAX_PULSE_DURATION_MS) durationMs = GRIND_MAX_PULSE_DURATION_MS;
 
     pulseAttempts_++;
     Serial.printf("[GRIND] Pulse #%d/%d -- error=%.3fg P95_flow=%.2fgps duration=%.0fms\n",
                   pulseAttempts_, maxPulseAttempts_, errorG, estimatedFlow, durationMs);
 
+    saveCheckpoint("pulse_motor_on");
     MotorResult onResult = motor_->start();
     lastMotorRttMs_ = onResult.rttMs;
     if (!onResult.success) {
@@ -704,6 +707,7 @@ void GrindController::startPulse(unsigned long nowMs) {
     }
 
     delay((unsigned long)durationMs);
+    saveCheckpoint("pulse_motor_off");
 
     if (!stopMotorOrAbort()) {
         return;
@@ -726,7 +730,9 @@ void GrindController::startPulse(unsigned long nowMs) {
 void GrindController::startPostPurgePulse() {
     Serial.printf("[GRIND] Post-purge pulse -- %d pulsa tersisa (durasi tetap %lums)\n",
                   postPurgePulsesRemaining_, GRIND_PURGE_PULSE_DURATION_MS);
+    saveCheckpoint("purge_start");
 
+    saveCheckpoint("purge_motor_on");
     MotorResult onResult = motor_->start();
     lastMotorRttMs_ = onResult.rttMs;
     if (!onResult.success) {
@@ -735,11 +741,8 @@ void GrindController::startPostPurgePulse() {
         return;
     }
 
-    // CATATAN ARSITEKTUR SAMA seperti startPulse(): delay() blocking
-    // di sini DITERIMA untuk trial awal ini (durasi purge jauh lebih
-    // pendek dari pulsa koreksi biasa, 80ms vs 30-250ms, jadi dampak
-    // blocking-nya lebih kecil lagi).
     delay((unsigned long)GRIND_PURGE_PULSE_DURATION_MS);
+    saveCheckpoint("purge_motor_off");
 
     if (!stopMotorOrAbort()) {
         return;
@@ -748,18 +751,14 @@ void GrindController::startPostPurgePulse() {
     postPurgePulsesRemaining_--;
 }
 
-// Dipanggil TIAP sample selama state POST_PURGE -- tunggu jeda
-// GRIND_PURGE_PULSE_GAP_MS setelah pulsa TERAKHIR berhenti (motor
-// benar-benar diam dulu, konsisten filosofi settlingTimeMs_ di
-// WAIT_SETTLE/evaluatePulseProgress()), lalu: kalau masih ada pulsa
-// tersisa -> jalankan pulsa berikutnya; kalau sudah habis -> semua
-// purge selesai, lanjut ke keputusan target (finishPostPurgeAndDecide()).
 void GrindController::evaluatePostPurgeProgress(unsigned long sampleTimestampMs) {
     (void)sampleTimestampMs;
 
     if (millis() - motorStoppedMs_ < GRIND_PURGE_PULSE_GAP_MS) {
         return;
     }
+
+    saveCheckpoint("purge_eval");
 
     if (postPurgePulsesRemaining_ > 0) {
         startPostPurgePulse();
@@ -770,15 +769,8 @@ void GrindController::evaluatePostPurgeProgress(unsigned long sampleTimestampMs)
     finishPostPurgeAndDecide();
 }
 
-// Logic KEPUTUSAN target (sukses/overshoot/undershoot -> pulse
-// correction) -- DIPINDAH dari WAIT_SETTLE lama (SEBELUM POST_PURGE
-// ditambahkan), SEKARANG dipanggil dari 2 tempat: (a) WAIT_SETTLE
-// LANGSUNG kalau postPurgeEnabled_ == false (behavior lama, tidak
-// berubah), (b) evaluatePostPurgeProgress() setelah semua pulsa purge
-// selesai (behavior BARU). Logic keputusan ITU SENDIRI TIDAK BERUBAH
-// SAMA SEKALI dari versi lama -- cuma DIPINDAH ke fungsi terpisah
-// supaya bisa dipanggil dari 2 titik tanpa duplikasi kode.
 void GrindController::finishPostPurgeAndDecide() {
+    saveCheckpoint("purge_decide");
     float settledWeight = weightFilter_->latestWeight();
     float errorG = settledWeight - targetAbsoluteG_;
 
@@ -787,22 +779,21 @@ void GrindController::finishPostPurgeAndDecide() {
 
     if (fabsf(errorG) <= accuracyToleranceG_) {
         finalWeightG_ = settledWeight;
+        saveCheckpoint("purge_done_ok");
         finishAsComplete();
     } else if (errorG > 0) {
         finalWeightG_ = settledWeight;
         Serial.println("[GRIND] Overshoot di luar toleransi -- tidak ada koreksi untuk kelebihan, selesai sebagai INACCURATE.");
+        saveCheckpoint("purge_done_over");
         finishAsComplete();
     } else {
-        // Kurang dari target -- hitung P95 flow SESI INI dari
-        // window GRIND_PULSE_P95_WINDOW_MS TERAKHIR sebelum
-        // sekarang (predictive stop baru saja terjadi), lalu
-        // mulai pulse correction.
         sessionPulseFlowGps_ = computeSessionP95(millis());
         if (isnan(sessionPulseFlowGps_)) {
             Serial.println("[GRIND] P95 sesi tidak tersedia (tidak ada sample flow terekam) -- pulsa akan pakai fallback.");
         } else {
             Serial.printf("[GRIND] P95 flow sesi ini: %.2f gps (dipakai untuk semua pulsa sesi ini)\n", sessionPulseFlowGps_);
         }
+        saveCheckpoint("purge_to_pulse");
         transitionTo(GrindState::PULSE_CORRECTION);
         startPulse(millis());
     }
@@ -818,6 +809,7 @@ void GrindController::evaluatePulseProgress(unsigned long sampleTimestampMs) {
         return;
     }
 
+    saveCheckpoint("pulse_eval");
     float currentWeight = weightFilter_->latestWeight();
     float errorG = currentWeight - targetAbsoluteG_;
 
@@ -844,8 +836,10 @@ void GrindController::finishAsComplete() {
     float errorG = finalErrorG();
     if (fabsf(errorG) <= accuracyToleranceG_) {
         result_ = GrindResult::SUCCESS;
+        saveCheckpoint("done_success");
     } else {
         result_ = GrindResult::INACCURATE;
+        saveCheckpoint("done_inaccurate");
     }
 
     Serial.printf("[GRIND] SELESAI -- hasil=%s berat_akhir=%.2fg target=%.2fg error=%.3fg pulse_attempts=%d durasi=%lums grind_latency=%lums\n",
