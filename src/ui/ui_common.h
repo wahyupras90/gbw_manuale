@@ -33,10 +33,11 @@ typedef enum {
     UI_SCREEN_PULSE_CORRECTION,
     UI_SCREEN_DONE,
     UI_SCREEN_SETTINGS,
-    UI_SCREEN_MANUAL_GRIND,  // test motor/kalibrasi grind size, akses dari Settings (scroll)
-    UI_SCREEN_DEBUG,  // debug HX711/validasi grind tanpa Serial, akses dari Settings (scroll)
-    UI_SCREEN_CALIBRATION_WIZARD,  // BARU -- wizard kalibrasi HX711 2-titik, akses dari tombol "KALIBRASI ULANG" di Debug
-    UI_SCREEN_GRIND_PARAMS,        // BARU -- 7 parameter grind dipindah dari Settings ke layar terpisah
+    UI_SCREEN_MANUAL_GRIND,  // test motor/kalibrasi grind size, akses dari Settings
+    UI_SCREEN_DEBUG,         // diagnostik grind (validasi, sistem, last grind), akses dari Settings
+    UI_SCREEN_SCALE,         // BARU -- timbangan HX711 + kalibrasi, akses dari Settings
+    UI_SCREEN_CALIBRATION_WIZARD,  // wizard kalibrasi HX711 2-titik, akses dari Scale
+    UI_SCREEN_GRIND_PARAMS,        // 7 parameter grind, akses dari Settings
 } ui_screen_id_t;
 
 // Data yang dibagi ke semua screen -- di-update oleh GrindController

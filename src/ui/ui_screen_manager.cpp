@@ -14,6 +14,9 @@ extern lv_obj_t* ui_screen_manual_grind_create(void);
 extern void ui_screen_manual_grind_update(void);
 extern lv_obj_t* ui_screen_debug_create(void);
 extern void ui_screen_debug_update(void);
+extern lv_obj_t* ui_screen_scale_create(void);
+extern void ui_screen_scale_update(void);
+extern void ui_screen_scale_destroy(void);
 extern lv_obj_t* ui_screen_calibration_wizard_create(void);
 extern void ui_screen_calibration_wizard_reset(void);
 extern lv_obj_t* ui_screen_grind_params_create(void);
@@ -109,6 +112,7 @@ static lv_obj_t* get_or_create_screen(ui_screen_id_t id) {
         case UI_SCREEN_SETTINGS:         s_screens[id] = ui_screen_settings_create(); break;
         case UI_SCREEN_MANUAL_GRIND:     s_screens[id] = ui_screen_manual_grind_create(); break;
         case UI_SCREEN_DEBUG:            s_screens[id] = ui_screen_debug_create(); break;
+        case UI_SCREEN_SCALE:            s_screens[id] = ui_screen_scale_create(); break;
         case UI_SCREEN_CALIBRATION_WIZARD: s_screens[id] = ui_screen_calibration_wizard_create(); break;
         case UI_SCREEN_GRIND_PARAMS:     s_screens[id] = ui_screen_grind_params_create(); break;
     }
@@ -223,6 +227,18 @@ void ui_close_debug(lv_event_t* e) {
     navigate_to(UI_SCREEN_SETTINGS);
 }
 
+// Scale screen -- akses dari Settings, kembali ke Settings
+void ui_open_scale(lv_event_t* e) {
+    (void)e;
+    debugScaleTare();
+    navigate_to(UI_SCREEN_SCALE);
+}
+
+void ui_close_scale(lv_event_t* e) {
+    (void)e;
+    navigate_to(UI_SCREEN_SETTINGS);
+}
+
 // Wizard kalibrasi -- akses dari tombol "KALIBRASI ULANG" di Debug
 // screen (screen_debug.cpp), SELALU kembali ke UI_SCREEN_DEBUG (bukan
 // Settings) supaya operator bisa langsung lihat "Scale aktif" yang
@@ -331,6 +347,7 @@ void ui_tick(void) {
         case UI_SCREEN_PULSE_CORRECTION: ui_screen_pulse_correction_update(); break;
         case UI_SCREEN_MANUAL_GRIND:     ui_screen_manual_grind_update(); break;
         case UI_SCREEN_DEBUG:            ui_screen_debug_update(); break;
+        case UI_SCREEN_SCALE:            ui_screen_scale_update(); break;
         default: break;  // Set Target, Done, Settings tidak perlu tick berkala
     }
 

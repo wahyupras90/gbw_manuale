@@ -26,6 +26,7 @@ extern void ui_close_settings(lv_event_t* e);
 extern void ui_enable_swipe_home(lv_obj_t* screen);
 extern void ui_open_grind_params(lv_event_t* e);
 extern void ui_open_manual_grind(lv_event_t* e);
+extern void ui_open_scale(lv_event_t* e);
 extern void ui_open_debug(lv_event_t* e);
 
 static void check_update_btn_cb(lv_event_t* e) {
@@ -161,7 +162,8 @@ lv_obj_t* ui_screen_settings_create(void) {
     create_open_row(container, 0, "Grind Parameters", "Tolerance, Coast Ratio, dll", ui_open_grind_params);
     create_update_row(container, 0);
     create_open_row(container, 0, "Manual Grind", "Test motor / calibrate grind size", ui_open_manual_grind);
-    create_open_row(container, 0, "Debug", "HX711 raw / validasi grind", ui_open_debug);
+    create_open_row(container, 0, "Scale", "Timbangan HX711 & kalibrasi", ui_open_scale);
+    create_open_row(container, 0, "Debug", "Diagnostik grind & sistem", ui_open_debug);
 
     // Tombol Back -- fixed di s_screen, konsisten dengan screen lain
     lv_obj_t* back_btn = lv_btn_create(s_screen);

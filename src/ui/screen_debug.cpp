@@ -25,10 +25,6 @@
 // ============================================================
 
 static lv_obj_t* s_screen = nullptr;
-static lv_obj_t* s_raw_value = nullptr;
-static lv_obj_t* s_offset_value = nullptr;
-static lv_obj_t* s_scale_value = nullptr;
-static lv_obj_t* s_weight_value = nullptr;
 static lv_obj_t* s_has_sample_value = nullptr;
 static lv_obj_t* s_flow_valid_value = nullptr;
 static lv_obj_t* s_flow_rate_value = nullptr;
@@ -108,42 +104,6 @@ void ui_screen_debug_update(void) {
 
     DebugSnapshot snap = grind_get_debug_snapshot();
     char buf[32];
-
-    if (snap.rawAdc == -2) {
-        // Grind sedang aktif -- lihat catatan lengkap di
-        // grind_get_debug_snapshot() (main.cpp) kenapa raw dilewati.
-        lv_label_set_text(s_raw_value, "-- (grind aktif)");
-        lv_obj_set_style_text_color(s_raw_value, COLOR_ACCENT_DIM, 0);
-    } else if (snap.rawAdc < 0) {
-        lv_label_set_text(s_raw_value, "-- (belum ready)");
-        lv_obj_set_style_text_color(s_raw_value, COLOR_TEXT_SECONDARY, 0);
-    } else {
-        snprintf(buf, sizeof(buf), "%ld", snap.rawAdc);
-        lv_label_set_text(s_raw_value, buf);
-        lv_obj_set_style_text_color(s_raw_value, COLOR_TEXT_PRIMARY, 0);
-    }
-
-    snprintf(buf, sizeof(buf), "%ld", snap.offsetActive);
-    lv_label_set_text(s_offset_value, buf);
-
-    snprintf(buf, sizeof(buf), "%.2f", snap.scaleActive);
-    lv_label_set_text(s_scale_value, buf);
-
-    if (snap.rawAdc == -2) {
-        // Konsisten dengan raw ADC di atas -- weightGrams SENGAJA
-        // NAN selama grind aktif (lihat grind_get_debug_snapshot()),
-        // tapi ini BUKAN masalah/warning, murni supaya Debug screen
-        // tidak mengganggu timing predictive-stop lewat blocking call.
-        lv_label_set_text(s_weight_value, "-- (grind aktif)");
-        lv_obj_set_style_text_color(s_weight_value, COLOR_ACCENT_DIM, 0);
-    } else if (isnan(snap.weightGrams)) {
-        lv_label_set_text(s_weight_value, "-- g (NAN)");
-        lv_obj_set_style_text_color(s_weight_value, COLOR_WARN, 0);
-    } else {
-        snprintf(buf, sizeof(buf), "%.2f g", snap.weightGrams);
-        lv_label_set_text(s_weight_value, buf);
-        lv_obj_set_style_text_color(s_weight_value, COLOR_TEXT_PRIMARY, 0);
-    }
 
     lv_label_set_text(s_has_sample_value, snap.hasSample ? "YA" : "TIDAK");
     lv_obj_set_style_text_color(s_has_sample_value, snap.hasSample ? COLOR_SUCCESS : COLOR_WARN, 0);
@@ -252,29 +212,6 @@ lv_obj_t* ui_screen_debug_create(void) {
     lv_obj_set_style_pad_row(container, 6, 0);
     lv_obj_set_scroll_dir(container, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(container, LV_SCROLLBAR_MODE_AUTO);
-
-    create_section_label(container, "HX711 RAW");
-    s_raw_value = create_debug_row(container, "Raw ADC");
-    s_offset_value = create_debug_row(container, "Offset aktif");
-    s_scale_value = create_debug_row(container, "Scale aktif");
-    s_weight_value = create_debug_row(container, "Berat (gram)");
-
-    // BARU -- tombol masuk wizard kalibrasi 2-titik (screen_calibration_wizard.cpp).
-    // Ditaruh di section HX711 RAW (bukan section terpisah) -- aksi ini
-    // langsung terkait field "Scale aktif" di atas, jadi ditempatkan
-    // berdekatan secara visual.
-    lv_obj_t* calib_btn = lv_btn_create(container);
-    lv_obj_set_size(calib_btn, SCREEN_WIDTH - 32, 40);
-    lv_obj_set_style_bg_color(calib_btn, COLOR_BG_CARD, 0);
-    lv_obj_set_style_border_width(calib_btn, 1, 0);
-    lv_obj_set_style_border_color(calib_btn, COLOR_ACCENT_DIM, 0);
-    lv_obj_set_style_radius(calib_btn, 10, 0);
-    lv_obj_add_event_cb(calib_btn, ui_open_calibration_wizard, LV_EVENT_CLICKED, NULL);
-    lv_obj_t* calib_label = lv_label_create(calib_btn);
-    lv_label_set_text(calib_label, "KALIBRASI ULANG");
-    lv_obj_set_style_text_font(calib_label, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(calib_label, COLOR_ACCENT, 0);
-    lv_obj_center(calib_label);
 
     create_section_label(container, "VALIDASI GRIND");
     s_has_sample_value = create_debug_row(container, "hasSample()");
