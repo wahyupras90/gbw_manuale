@@ -948,6 +948,14 @@ void GrindController::evaluatePulseProgress(unsigned long sampleTimestampMs) {
 }
 
 void GrindController::finishAsComplete() {
+    // Guard: cegah double-call. Bisa terjadi kalau evaluatePulseProgress()
+    // atau evaluatePostPurgeProgress() dipanggil lagi dari update() sebelum
+    // state berubah ke COMPLETE di iterasi berikutnya.
+    if (state_ == GrindState::COMPLETE || state_ == GrindState::ABORT ||
+        state_ == GrindState::IDLE) {
+        return;
+    }
+
     float errorG = finalErrorG();
     if (fabsf(errorG) <= accuracyToleranceG_) {
         result_ = GrindResult::SUCCESS;
