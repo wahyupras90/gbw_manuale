@@ -43,11 +43,11 @@ static void check_update_btn_cb(lv_event_t* e) {
 }
 
 // Helper baris dengan tombol OPEN (dipakai untuk Grind Params, Manual Grind, Debug)
-static void create_open_row(lv_obj_t* parent, int y_offset, const char* name, const char* desc,
+static void create_open_row(lv_obj_t* parent, int /*y_offset*/, const char* name, const char* desc,
                              lv_event_cb_t open_cb) {
     lv_obj_t* row = lv_obj_create(parent);
     lv_obj_set_size(row, SCREEN_WIDTH - 40, 80);
-    lv_obj_align(row, LV_ALIGN_TOP_MID, 0, y_offset);
+    // Tidak pakai lv_obj_align -- posisi diatur flex container parent
     lv_obj_set_style_bg_color(row, COLOR_BG_CARD, 0);
     lv_obj_set_style_border_width(row, 1, 0);
     lv_obj_set_style_border_color(row, lv_color_hex(0x2a2a2a), 0);
@@ -84,10 +84,10 @@ static void create_open_row(lv_obj_t* parent, int y_offset, const char* name, co
     lv_obj_center(open_label);
 }
 
-static void create_update_row(lv_obj_t* parent, int y_offset) {
+static void create_update_row(lv_obj_t* parent, int /*y_offset*/) {
     lv_obj_t* row = lv_obj_create(parent);
     lv_obj_set_size(row, SCREEN_WIDTH - 40, 80);
-    lv_obj_align(row, LV_ALIGN_TOP_MID, 0, y_offset);
+    // Tidak pakai lv_obj_align -- posisi diatur flex container parent
     lv_obj_set_style_bg_color(row, COLOR_BG_CARD, 0);
     lv_obj_set_style_border_width(row, 1, 0);
     lv_obj_set_style_border_color(row, lv_color_hex(0x2a2a2a), 0);
@@ -133,8 +133,7 @@ static void create_update_row(lv_obj_t* parent, int y_offset) {
 lv_obj_t* ui_screen_settings_create(void) {
     s_screen = lv_obj_create(NULL);
     ui_apply_screen_bg(s_screen);
-    lv_obj_set_scroll_dir(s_screen, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(s_screen, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_clear_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
     ui_create_status_bar(s_screen, nullptr);
 
@@ -144,21 +143,27 @@ lv_obj_t* ui_screen_settings_create(void) {
     lv_obj_set_style_text_color(title, COLOR_ACCENT, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, STATUS_BAR_HEIGHT + 18);
 
-    // 4 baris, masing-masing 80px tinggi + 8px gap = 352px total
-    // Mulai dari y=STATUS_BAR_HEIGHT+44
-    int y = STATUS_BAR_HEIGHT + 44;
-    int gap = 8;
-    int row_h = 80;
+    // Container scrollable -- konten row di sini, tombol Back di luar
+    // (fixed di BOTTOM_MID s_screen, konsisten dengan screen lain).
+    // Tinggi container = SCREEN_HEIGHT - title area - tombol Back area
+    // = 456 - (STATUS_BAR_HEIGHT + 44) - 96 = 294px
+    lv_obj_t* container = lv_obj_create(s_screen);
+    lv_obj_set_size(container, SCREEN_WIDTH, 456 - (STATUS_BAR_HEIGHT + 44) - 96);
+    lv_obj_align(container, LV_ALIGN_TOP_MID, 0, STATUS_BAR_HEIGHT + 44);
+    lv_obj_set_style_bg_opa(container, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(container, 0, 0);
+    lv_obj_set_style_pad_all(container, 0, 0);
+    lv_obj_set_flex_flow(container, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(container, 8, 0);
+    lv_obj_set_scroll_dir(container, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(container, LV_SCROLLBAR_MODE_AUTO);
 
-    create_open_row(s_screen, y, "Grind Parameters", "Tolerance, Coast Ratio, dll", ui_open_grind_params);
-    y += row_h + gap;
-    create_update_row(s_screen, y);
-    y += row_h + gap;
-    create_open_row(s_screen, y, "Manual Grind", "Test motor / calibrate grind size", ui_open_manual_grind);
-    y += row_h + gap;
-    create_open_row(s_screen, y, "Debug", "HX711 raw / validasi grind", ui_open_debug);
+    create_open_row(container, 0, "Grind Parameters", "Tolerance, Coast Ratio, dll", ui_open_grind_params);
+    create_update_row(container, 0);
+    create_open_row(container, 0, "Manual Grind", "Test motor / calibrate grind size", ui_open_manual_grind);
+    create_open_row(container, 0, "Debug", "HX711 raw / validasi grind", ui_open_debug);
 
-    // Tombol Back -- navigasi kembali ke screen sebelum Settings
+    // Tombol Back -- fixed di s_screen, konsisten dengan screen lain
     lv_obj_t* back_btn = lv_btn_create(s_screen);
     lv_obj_set_size(back_btn, 220, 60);
     lv_obj_align(back_btn, LV_ALIGN_BOTTOM_MID, 0, -28);
