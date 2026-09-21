@@ -113,7 +113,8 @@ GrindController::GrindController(WeightFilter* weightFilter, MotorController* mo
       // lama sampai operator eksplisit mengaktifkan lewat Settings.
       postPurgeEnabled_(false), pendingPostPurgeEnabled_(false),
       postPurgePulseCount_(GRIND_POST_PURGE_PULSE_COUNT_DEFAULT), pendingPostPurgePulseCount_(GRIND_POST_PURGE_PULSE_COUNT_DEFAULT),
-      postPurgePulsesRemaining_(0),
+      postPurgePulsesRemaining_(0), purgeMotorOnMs_(0),
+      pulseMotorOnMs_(0), pulseDurationMs_(0),
       // BARU -- stabilityThresholdG_, pola sama. Default 0.3g.
       stabilityThresholdG_(0.3f), pendingStabilityThresholdG_(0.3f),
       waitStableStartMs_(0), waitStableOkSinceMs_(0), waitStableLastWeight_(NAN),
@@ -268,6 +269,9 @@ bool GrindController::startGrind(float targetDoseG) {
     postPurgeEnabled_ = pendingPostPurgeEnabled_;  // BARU -- pola sama
     postPurgePulseCount_ = pendingPostPurgePulseCount_;  // BARU -- pola sama
     postPurgePulsesRemaining_ = 0;  // BARU -- reset counter runtime untuk sesi baru
+    purgeMotorOnMs_ = 0;
+    pulseMotorOnMs_ = 0;
+    pulseDurationMs_ = 0;
     stabilityThresholdG_ = pendingStabilityThresholdG_;
     waitStableStartMs_ = millis();
     waitStableOkSinceMs_ = 0;
@@ -328,6 +332,15 @@ void GrindController::update() {
 
     if (state_ == GrindState::WAIT_FLOW_START || state_ == GrindState::GRINDING) {
         checkStall(nowMs);
+    }
+
+    // Timer motor pulse/purge berjalan independen dari HX711 sample --
+    // dipanggil tiap loop() bukan hanya saat ada sample valid, sehingga
+    // motor OFF tidak tertunda kalau HX711 tidak menghasilkan sample.
+    if (state_ == GrindState::POST_PURGE) {
+        evaluatePostPurgeProgress(nowMs);
+    } else if (state_ == GrindState::PULSE_CORRECTION) {
+        evaluatePulseProgress(nowMs);
     }
 }
 
@@ -517,10 +530,10 @@ void GrindController::onWeightSample(float rawWeightG, unsigned long sampleTimes
             break;
         }
         case GrindState::POST_PURGE:
-            evaluatePostPurgeProgress(sampleTimestampMs);
+            // Timer motor pulse ditangani di update() -- independen dari HX711 sample
             break;
         case GrindState::PULSE_CORRECTION:
-            evaluatePulseProgress(sampleTimestampMs);
+            // Timer motor pulse ditangani di update() -- independen dari HX711 sample
             break;
         default:
             break;
@@ -770,12 +783,11 @@ void GrindController::startPulse(unsigned long nowMs) {
         return;
     }
 
-    delay((unsigned long)durationMs);
-    saveCheckpoint("pulse_motor_off");
-
-    if (!stopMotorOrAbort()) {
-        return;
-    }
+    // Non-blocking: simpan timestamp dan durasi, motor OFF dilakukan
+    // di evaluatePulseProgress() setelah durationMs berlalu.
+    // TIDAK pakai delay() yang memblokir LVGL task -> PANIC.
+    pulseMotorOnMs_ = millis();
+    pulseDurationMs_ = (unsigned long)durationMs;
 }
 
 // ------------------------------------------------------------
@@ -805,18 +817,31 @@ void GrindController::startPostPurgePulse() {
         return;
     }
 
-    delay((unsigned long)GRIND_PURGE_PULSE_DURATION_MS);
-    saveCheckpoint("purge_motor_off");
-
-    if (!stopMotorOrAbort()) {
-        return;
-    }
-
-    postPurgePulsesRemaining_--;
+    // Non-blocking: simpan timestamp motor ON, motor OFF dilakukan
+    // di evaluatePostPurgeProgress() setelah GRIND_PURGE_PULSE_DURATION_MS
+    // berlalu -- TIDAK pakai delay() yang memblokir LVGL task.
+    purgeMotorOnMs_ = millis();
 }
 
 void GrindController::evaluatePostPurgeProgress(unsigned long sampleTimestampMs) {
     (void)sampleTimestampMs;
+
+    // NON-BLOCKING: kalau motor purge sedang ON (purgeMotorOnMs_ != 0),
+    // tunggu GRIND_PURGE_PULSE_DURATION_MS berlalu lalu matikan motor.
+    // Ini menggantikan delay() lama yang memblokir LVGL task -> PANIC.
+    if (purgeMotorOnMs_ != 0) {
+        if (millis() - purgeMotorOnMs_ < (unsigned long)GRIND_PURGE_PULSE_DURATION_MS) {
+            return;  // belum waktunya OFF
+        }
+        // Durasi tercapai -- matikan motor
+        purgeMotorOnMs_ = 0;
+        saveCheckpoint("purge_motor_off");
+        if (!stopMotorOrAbort()) {
+            return;
+        }
+        postPurgePulsesRemaining_--;
+        // Lanjut ke pengecekan gap/settling di bawah
+    }
 
     if (postPurgePulsesRemaining_ > 0) {
         // Masih ada pulsa berikutnya -- tunggu GAP pendek saja (80ms
@@ -833,15 +858,7 @@ void GrindController::evaluatePostPurgeProgress(unsigned long sampleTimestampMs)
 
     // Pulse TERAKHIR sudah selesai -- tunggu settlingTimeMs_ PENUH
     // (bukan cuma GRIND_PURGE_PULSE_GAP_MS = 150ms) sebelum baca
-    // berat dan ambil keputusan final. Ini fix untuk P0 yang ditemukan
-    // lewat review: 150ms setelah pulse terakhir BUKAN settling yang
-    // proper -- kopi yang dirontokkan purge bisa masih jatuh beberapa
-    // ratus ms setelah motor OFF, menyebabkan finishPostPurgeAndDecide()
-    // membaca berat yang terlalu rendah dan salah memulai pulse
-    // correction (lalu kopi purge yang tertunda jatuh di tengah pulse
-    // correction -> overcorrection). Pakai settlingTimeMs_ yang sama
-    // dengan WAIT_SETTLE dan evaluatePulseProgress() -- konsisten,
-    // tidak ada magic number baru.
+    // berat dan ambil keputusan final.
     if (millis() - motorStoppedMs_ < settlingTimeMs_) {
         return;
     }
@@ -883,6 +900,22 @@ void GrindController::finishPostPurgeAndDecide() {
 
 void GrindController::evaluatePulseProgress(unsigned long sampleTimestampMs) {
     (void)sampleTimestampMs;
+
+    // NON-BLOCKING: kalau motor pulse sedang ON (pulseMotorOnMs_ != 0),
+    // tunggu pulseDurationMs_ berlalu lalu matikan motor.
+    if (pulseMotorOnMs_ != 0) {
+        if (millis() - pulseMotorOnMs_ < pulseDurationMs_) {
+            return;  // belum waktunya OFF
+        }
+        // Durasi tercapai -- matikan motor
+        pulseMotorOnMs_ = 0;
+        pulseDurationMs_ = 0;
+        saveCheckpoint("pulse_motor_off");
+        if (!stopMotorOrAbort()) {
+            return;
+        }
+        // Lanjut ke settling check di bawah
+    }
 
     // GANTI konstanta -> settlingTimeMs_ (BARU), SAMA variable dengan
     // WAIT_SETTLE di atas -- sesuai kesepakatan: satu setting untuk

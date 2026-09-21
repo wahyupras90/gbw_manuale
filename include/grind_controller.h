@@ -414,6 +414,9 @@ private:
     int postPurgePulseCount_;
     int pendingPostPurgePulseCount_;
     int postPurgePulsesRemaining_;
+    unsigned long purgeMotorOnMs_;   // timestamp motor ON purge -- untuk non-blocking pulse duration
+    unsigned long pulseMotorOnMs_;   // timestamp motor ON pulse correction -- untuk non-blocking
+    unsigned long pulseDurationMs_;  // durasi pulse yang sedang berjalan (bervariasi per pulse)
 
     // WAIT_STABLE -- pre-grind stability check
     float stabilityThresholdG_;

@@ -133,7 +133,8 @@ static void create_update_row(lv_obj_t* parent, int y_offset) {
 lv_obj_t* ui_screen_settings_create(void) {
     s_screen = lv_obj_create(NULL);
     ui_apply_screen_bg(s_screen);
-    lv_obj_clear_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(s_screen, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(s_screen, LV_SCROLLBAR_MODE_AUTO);
 
     ui_create_status_bar(s_screen, nullptr);
 
@@ -156,6 +157,21 @@ lv_obj_t* ui_screen_settings_create(void) {
     create_open_row(s_screen, y, "Manual Grind", "Test motor / calibrate grind size", ui_open_manual_grind);
     y += row_h + gap;
     create_open_row(s_screen, y, "Debug", "HX711 raw / validasi grind", ui_open_debug);
+
+    // Tombol Back -- navigasi kembali ke screen sebelum Settings
+    lv_obj_t* back_btn = lv_btn_create(s_screen);
+    lv_obj_set_size(back_btn, 220, 60);
+    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_MID, 0, -28);
+    lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x1a1a1a), 0);
+    lv_obj_set_style_border_width(back_btn, 1, 0);
+    lv_obj_set_style_border_color(back_btn, COLOR_ACCENT_DIM, 0);
+    lv_obj_set_style_radius(back_btn, 30, 0);
+    lv_obj_add_event_cb(back_btn, ui_close_settings, LV_EVENT_CLICKED, NULL);
+    lv_obj_t* back_label = lv_label_create(back_btn);
+    lv_label_set_text(back_label, "< BACK");
+    lv_obj_set_style_text_font(back_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(back_label, COLOR_ACCENT, 0);
+    lv_obj_center(back_label);
 
     ui_enable_swipe_home(s_screen);
 

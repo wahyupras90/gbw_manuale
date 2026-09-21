@@ -231,11 +231,49 @@ static Preferences settingsPrefs;
 // ============================================================
 static Preferences diagPrefs;
 
+// Checkpoint RAM -- selalu diupdate, tampil di Debug screen real-time.
+// Tidak survive reboot.
+static char   s_lastCpRam[16]  = "(belum ada)";
+static unsigned long s_lastCpRamMs = 0;
+
+// Label yang wajib flush ke NVS (survive reboot untuk diagnostik):
+// - grind_start     : awal sesi
+// - flow_confirmed  : flow terdeteksi, model aktif
+// - motor_stop      : predictive stop terjadi
+// - purge_motor_on  : motor purge nyala (motor aktif lagi setelah stop)
+// - done_success    : grind selesai akurat
+// - done_inaccurate : grind selesai tidak akurat
+// - abort_r*        : grind dibatalkan
+// Semua label lain hanya RAM -- mengurangi flash write dari ~35x
+// menjadi ~4-6x per grind untuk menghindari NVS write berlebihan
+// yang berpotensi menyebabkan blocking, flash wear, dan state
+// tidak konsisten bila terjadi reset/power loss saat write.
+static bool isNvsCheckpoint(const char* label) {
+    if (strncmp(label, "grind_start",    11) == 0) return true;
+    if (strncmp(label, "flow_confirmed", 14) == 0) return true;
+    if (strncmp(label, "motor_stop",     10) == 0) return true;
+    if (strncmp(label, "purge_motor_on", 14) == 0) return true;
+    if (strncmp(label, "done_success",   12) == 0) return true;
+    if (strncmp(label, "done_inaccurate",15) == 0) return true;
+    if (strncmp(label, "abort_r",         7) == 0) return true;
+    return false;
+}
+
 void saveCheckpoint(const char* label) {
-    diagPrefs.begin("gbwdiag", false);
-    diagPrefs.putString("last_cp", label);
-    diagPrefs.putULong("last_cp_ms", millis());
-    diagPrefs.end();
+    unsigned long nowMs = millis();
+
+    // Selalu simpan ke RAM
+    strncpy(s_lastCpRam, label, sizeof(s_lastCpRam) - 1);
+    s_lastCpRam[sizeof(s_lastCpRam) - 1] = '\0';
+    s_lastCpRamMs = nowMs;
+
+    // Hanya flush ke NVS untuk checkpoint penting
+    if (isNvsCheckpoint(label)) {
+        diagPrefs.begin("gbwdiag", false);
+        diagPrefs.putString("last_cp", label);
+        diagPrefs.putULong("last_cp_ms", nowMs);
+        diagPrefs.end();
+    }
 }
 
 
@@ -702,15 +740,18 @@ DebugSnapshot grind_get_debug_snapshot() {
     snap.homeGestureCount = ui_home_gesture_count();
     snap.touchRecoveryCount = lv_port_touch_recovery_count();
 
-    // Baca checkpoint terakhir dari NVS -- SELALU baca tiap panggilan
-    // (bukan di-cache RAM) karena saveCheckpoint() bisa menulis kapan
-    // saja dari loop()/grind_controller.cpp, dan grind_get_debug_snapshot()
-    // dipanggil tiap ~300ms dari screen_debug.cpp -- frekuensi baca NVS
-    // ini diterima karena NVS ESP32 membaca dari flash cache (bukan
-    // erase/write ulang seperti putString()), aman untuk frekuensi ini.
+    // Checkpoint terakhir -- baca dari RAM (real-time, update tiap
+    // saveCheckpoint() termasuk intermediate yang tidak ke NVS).
+    // Setelah reboot, s_lastCpRam berisi "(belum ada)" -- Debug screen
+    // akan menampilkan nilai NVS (checkpoint penting terakhir sebelum
+    // reboot) via field terpisah kalau diperlukan. Untuk sekarang,
+    // cukup RAM karena tujuan utama adalah real-time monitoring.
+    snap.lastCheckpoint = String(s_lastCpRam);
+    snap.lastCheckpointMs = s_lastCpRamMs;
+
+    // Last Grind Data -- tetap dari NVS karena ini data lintas sesi
+    // (survive reboot), berbeda dari checkpoint yang real-time.
     diagPrefs.begin("gbwdiag", true);  // read-only
-    snap.lastCheckpoint = diagPrefs.getString("last_cp", "(belum ada)");
-    snap.lastCheckpointMs = diagPrefs.getULong("last_cp_ms", 0);
     snap.lastGrindWeightAtMotorStop = diagPrefs.getFloat("lg_stop_w", NAN);
     snap.lastGrindPredictedCoast    = diagPrefs.getFloat("lg_pred_c", NAN);
     snap.lastGrindActualCoast       = diagPrefs.getFloat("lg_act_c",  NAN);
@@ -1071,6 +1112,20 @@ void setup() {
     delay(1000);
     captureResetReason();  // BARU -- paling awal, lihat catatan lengkap di captureResetReason()/s_resetReasonStr di atas
     loadSettingsFromNVS();  // BARU -- muat 4 setting UI dari flash SEBELUM apa pun membaca g_ui_state, lihat catatan lengkap di loadSettingsFromNVS()
+
+    // Load checkpoint NVS terakhir ke RAM -- supaya Debug screen setelah
+    // reboot/crash tetap menampilkan checkpoint terakhir sebelum crash,
+    // bukan "(belum ada)". s_lastCpRam dan s_lastCpRamMs diisi di sini
+    // sekali saat boot, lalu diupdate real-time oleh saveCheckpoint().
+    {
+        diagPrefs.begin("gbwdiag", true);
+        String cp = diagPrefs.getString("last_cp", "(belum ada)");
+        unsigned long cpMs = diagPrefs.getULong("last_cp_ms", 0);
+        diagPrefs.end();
+        strncpy(s_lastCpRam, cp.c_str(), sizeof(s_lastCpRam) - 1);
+        s_lastCpRam[sizeof(s_lastCpRam) - 1] = '\0';
+        s_lastCpRamMs = cpMs;
+    }
     Serial.println("\n=== GBW Firmware -- HARDWARE FINAL (GPIO + HX711 + WiFi OTA) ===");
     Serial.println("Kontrol grind: GPIO motor + polling HX711, TIDAK bergantung WiFi.");
     Serial.println("WiFi HANYA untuk OTA update firmware (lihat ota_manager.h).");
