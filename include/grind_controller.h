@@ -133,12 +133,11 @@
 enum class GrindState {
     IDLE,
     VALIDATING,
-    WAIT_STABLE,      // BARU -- tunggu timbangan stabil sebelum auto-tare & motor ON. Timeout = settlingTimeMs_ (ikut setting Settle Time), kalau timeout grind tetap lanjut. Threshold = stabilityThresholdG_ (setting user, default 0.3g).
+    WAIT_STABLE,      // tunggu timbangan stabil sebelum auto-tare & motor ON
     STARTING,
-    WAIT_FLOW_START,  // motor ON, menunggu flow >= threshold TERKONFIRMASI selama GRIND_LATENCY_CONFIRMATION_MS -- TIDAK ADA predictive stop di state ini, hanya stall timeout yang berlaku (lihat catatan safety di bawah)
-    GRINDING,         // flow sudah confirmed, predictive stop aktif (motor_stop_target_weight_g dihitung real-time)
+    GRINDING,         // motor ON, cek fixed stop percentage setiap sample
     WAIT_SETTLE,
-    POST_PURGE,       // BARU -- getar buang sisa chute SETELAH settle, SEBELUM cek target/mulai pulse correction. Lihat catatan lengkap di config.h (GRIND_PURGE_PULSE_DURATION_MS dkk).
+    POST_PURGE,       // getar buang sisa chute setelah settle, sebelum evaluasi
     PULSE_CORRECTION,
     COMPLETE,
     ABORT
@@ -227,27 +226,11 @@ public:
     // di atas -- alasan sama: mencegah perubahan Settings di tengah
     // grinding mengubah timing sesi yang sedang berjalan.
     void setSettlingTimeMs(unsigned long settlingMs) { pendingSettlingTimeMs_ = settlingMs; }
-    // BARU -- Coast Ratio (GRIND_LATENCY_TO_COAST_RATIO), disepakati
-    // eksplisit setelah investigasi overshoot 18g (lihat riwayat
-    // diskusi): model prediktif motorStopTargetWeightG_ = flow_rate *
-    // (latency_ms * ratio) -- ratio SEBELUMNYA konstanta tetap 1.0f di
-    // config.h, sekarang bisa dituning dari UI Settings tanpa compile
-    // ulang tiap coba angka. Pola snapshot-at-startGrind() SAMA
-    // PERSIS dengan parameter lain di atas.
-    void setCoastRatio(float ratio) { pendingCoastRatio_ = ratio; }
-    // BARU -- Confirmation Window (GRIND_LATENCY_CONFIRMATION_MS),
-    // disepakati eksplisit setelah observasi: gumpalan sisa chute
-    // bisa terdorong jatuh di AWAL grinding, ikut lolos window
-    // konfirmasi 500ms yang lama seolah itu flow kopi sungguhan yang
-    // sudah stabil -- mencemari grind_latency_ms yang jadi basis
-    // Coast Ratio. Range 300-2000ms disepakati (batas atas jauh di
-    // bawah GRIND_STALL_TIMEOUT_MS 5000ms, supaya window ini naik
-    // tidak sampai bikin grind keburu STALL sebelum sempat confirmed).
-    void setConfirmationWindowMs(unsigned long windowMs) { pendingConfirmationWindowMs_ = windowMs; }
-    // BARU -- POST_PURGE enable/pulse count, disepakati eksplisit
-    // (lihat riwayat diskusi & catatan lengkap di config.h). Durasi/
-    // jeda TIAP pulsa TIDAK disetting (hardcode di config.h) --
-    // keputusan eksplisit untuk versi pertama fitur ini.
+    // Stop At Percentage -- motor berhenti saat berat >= target × stopAtPercent_ / 100
+    // Menggantikan model predictive (latency × flow × coastRatio).
+    // Range 80–95%, default 88%. Sisa ditutup coast + post-purge + pulse correction.
+    void setStopAtPercent(float pct) { pendingStopAtPercent_ = pct; }
+    // POST_PURGE enable/pulse count
     void setPostPurgeEnabled(bool enabled) { pendingPostPurgeEnabled_ = enabled; }
     void setPostPurgePulseCount(int count) { pendingPostPurgePulseCount_ = count; }
     // BARU -- stability threshold untuk WAIT_STABLE state (pre-grind).
@@ -303,17 +286,7 @@ public:
     int pulseAttempts() const { return pulseAttempts_; }
     unsigned long grindDurationMs() const;  // sejak startGrind() dipanggil
 
-    // Diagnostik model real-time -- dibaca command Serial 'gs' supaya
-    // operator bisa lihat PERSIS angka yang dipakai keputusan stop
-    // sesi grind yang sedang/baru saja berjalan.
-    bool flowStartConfirmed() const { return flowStartConfirmed_; }
-    unsigned long grindLatencyMs() const { return grindLatencyMs_; }
-    float motorStopTargetWeightG() const { return motorStopTargetWeightG_; }
-    float sessionPulseFlowGps() const { return sessionPulseFlowGps_; }
-
-    // Estimasi latency motor -- HANYA berarti untuk UI/diagnostik,
-    // BUKAN dipakai dalam algoritma predictive-stop (lihat motor_controller.h,
-    // ini HTTP-style RTT/GPIO write time, bukan grind_latency_ms).
+    float stopAtPercent() const { return stopAtPercent_; }
     float lastMotorRttMs() const { return lastMotorRttMs_; }
 
 private:
@@ -438,34 +411,17 @@ private:
     int lastGrindPulseCount_;
 
     void transitionTo(GrindState newState);
-    void startMotorAndBeginGrind();  // BARU -- dipanggil dari WAIT_STABLE di update()
+    void startMotorAndBeginGrind();
     void doAbort(AbortReason reason);
     void checkStall(unsigned long nowMs);
     void checkTimeout(unsigned long nowMs);
     void checkHardOvershoot(float currentWeight);
-    void evaluateFlowStartConfirmation(unsigned long sampleTimestampMs);
     void evaluateGrindProgress(unsigned long sampleTimestampMs);
     void evaluatePulseProgress(unsigned long sampleTimestampMs);
     void startPulse(unsigned long nowMs);
-    // BARU -- POST_PURGE, lihat catatan lengkap di config.h
-    // (GRIND_PURGE_PULSE_DURATION_MS dkk) dan grind_controller.cpp.
     void startPostPurgePulse();
     void evaluatePostPurgeProgress(unsigned long sampleTimestampMs);
     void finishPostPurgeAndDecide();
     void finishAsComplete();
-
-    // Kirim motor OFF dengan retry sekali di level ini. CATATAN:
-    // motor_->stop() untuk GpioMotorController (implementasi final)
-    // TIDAK punya retry internal sendiri (1x digitalWrite() murni,
-    // beda dari TasmotaMotorController lama yang HTTP-based dan
-    // memang retry internal) -- WORST CASE 3x percobaan TOTAL
-    // (1x panggilan awal + 1x retry di sini + 1x lagi di doAbort()),
-    // BUKAN 4x seperti komentar lama di sini pernah menyiratkan.
-    // Lihat komentar lengkap di implementasi stopMotorOrAbort()
-    // (grind_controller.cpp) untuk rincian penuh & klarifikasi setelah
-    // sempat salah dihitung dalam review external. Kalau TETAP gagal,
-    // panggil doAbort(MOTOR_OFF_FAILED) dan return false -- caller
-    // HARUS berhenti melanjutkan alur normal (jangan transisi ke
-    // WAIT_SETTLE) kalau ini return false.
     bool stopMotorOrAbort();
 };

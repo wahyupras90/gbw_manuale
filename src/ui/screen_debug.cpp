@@ -39,10 +39,8 @@ static lv_obj_t* s_last_checkpoint_value = nullptr;
 
 // LAST GRIND section
 static lv_obj_t* s_lg_stop_w_value = nullptr;
-static lv_obj_t* s_lg_pred_coast_value = nullptr;
+static lv_obj_t* s_lg_stop_pct_value  = nullptr;static lv_obj_t* s_lg_act_coast_value = nullptr;
 static lv_obj_t* s_lg_act_coast_value = nullptr;
-static lv_obj_t* s_lg_ratio_value = nullptr;
-static lv_obj_t* s_lg_latency_value = nullptr;
 static lv_obj_t* s_lg_final_value = nullptr;
 static lv_obj_t* s_lg_pulses_value = nullptr;
 
@@ -165,19 +163,13 @@ void ui_screen_debug_update(void) {
     };
     char b[24];
     fmtF(b, sizeof(b), snap.lastGrindWeightAtMotorStop, "g"); lv_label_set_text(s_lg_stop_w_value, b);
-    fmtF(b, sizeof(b), snap.lastGrindPredictedCoast, "g");    lv_label_set_text(s_lg_pred_coast_value, b);
     fmtF(b, sizeof(b), snap.lastGrindActualCoast, "g");       lv_label_set_text(s_lg_act_coast_value, b);
+    lv_obj_set_style_text_color(s_lg_act_coast_value, COLOR_TEXT_PRIMARY, 0);
 
-    // Warna actual coast: hijau kalau mendekati predicted (selisih <0.1g), kuning kalau jauh
-    if (!isnan(snap.lastGrindActualCoast) && !isnan(snap.lastGrindPredictedCoast)) {
-        float diff = fabsf(snap.lastGrindActualCoast - snap.lastGrindPredictedCoast);
-        lv_obj_set_style_text_color(s_lg_act_coast_value, diff < 0.1f ? COLOR_SUCCESS : COLOR_WARN, 0);
-    }
-
-    fmtF(b, sizeof(b), snap.lastGrindCoastRatioUsed, "x");   lv_label_set_text(s_lg_ratio_value, b);
-    if (snap.lastGrindLatencyMs > 0) snprintf(b, sizeof(b), "%lums", snap.lastGrindLatencyMs);
+    if (!isnan(snap.lastGrindStopAtPercent)) snprintf(b, sizeof(b), "%.0f%%", snap.lastGrindStopAtPercent);
     else snprintf(b, sizeof(b), "--");
-    lv_label_set_text(s_lg_latency_value, b);
+    lv_label_set_text(s_lg_stop_pct_value, b);
+
     fmtF(b, sizeof(b), snap.lastGrindFinalWeightG, "g");      lv_label_set_text(s_lg_final_value, b);
     snprintf(b, sizeof(b), "%d", snap.lastGrindPulseCount);   lv_label_set_text(s_lg_pulses_value, b);
 }
@@ -233,10 +225,8 @@ lv_obj_t* ui_screen_debug_create(void) {
 
     create_section_label(container, "LAST GRIND");
     s_lg_stop_w_value      = create_debug_row(container, "Stop weight");
-    s_lg_pred_coast_value  = create_debug_row(container, "Pred. coast");
+    s_lg_stop_pct_value    = create_debug_row(container, "Stop At %");
     s_lg_act_coast_value   = create_debug_row(container, "Act. coast");
-    s_lg_ratio_value       = create_debug_row(container, "Coast ratio");
-    s_lg_latency_value     = create_debug_row(container, "Latency");
     s_lg_final_value       = create_debug_row(container, "Final weight");
     s_lg_pulses_value      = create_debug_row(container, "Pulses");
 

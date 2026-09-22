@@ -41,8 +41,6 @@ ui_shared_state_t g_ui_state = {
     .current_weight_g = 0.0f,
     .flow_rate_gps = 0.0f,
     .flow_start_confirmed = false,
-    .grind_latency_ms = 0,
-    .motor_stop_target_weight_g = 0.0f,  // konsisten dengan default motorStopTargetWeightG_ = 0.0f di GrindController (BUKAN NAN)
     .pulse_count = 0,
     .pulse_error_g = 0.0f,
     .grind_duration_ms = 0,
@@ -51,11 +49,10 @@ ui_shared_state_t g_ui_state = {
     .ble_connected = false,
     .accuracy_tolerance_g = GRIND_ACCURACY_TOLERANCE_G,
     .max_pulse_attempts = GRIND_MAX_PULSE_ATTEMPTS,
-    .settle_time_ms = GRIND_SCALE_PRECISION_SETTLING_TIME_MS,  // BARU
-    .coast_ratio = GRIND_LATENCY_TO_COAST_RATIO,  // BARU
-    .confirmation_window_ms = GRIND_LATENCY_CONFIRMATION_MS,  // BARU
-    .post_purge_enabled = false,  // BARU
-    .post_purge_pulse_count = GRIND_POST_PURGE_PULSE_COUNT_DEFAULT,  // BARU
+    .settle_time_ms = GRIND_SCALE_PRECISION_SETTLING_TIME_MS,
+    .stop_at_percent = 88.0f,
+    .post_purge_enabled = false,
+    .post_purge_pulse_count = GRIND_POST_PURGE_PULSE_COUNT_DEFAULT,
 };
 
 static ui_screen_id_t s_current_screen = UI_SCREEN_IDLE;

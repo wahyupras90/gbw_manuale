@@ -22,8 +22,9 @@ static lv_obj_t* s_screen = nullptr;
 static lv_obj_t* s_tolerance_value = nullptr;
 static lv_obj_t* s_max_pulses_value = nullptr;
 static lv_obj_t* s_settle_time_value = nullptr;
-static lv_obj_t* s_coast_ratio_value = nullptr;
-static lv_obj_t* s_confirmation_window_value = nullptr;
+static lv_obj_t* s_stop_at_pct_value = nullptr;
+static int s_stop_at_pct_minus_repeat = 0;
+static int s_stop_at_pct_plus_repeat = 0;
 static lv_obj_t* s_post_purge_toggle_btn = nullptr;
 static lv_obj_t* s_post_purge_toggle_label = nullptr;
 static lv_obj_t* s_post_purge_pulse_count_value = nullptr;
@@ -43,10 +44,7 @@ static int s_max_pulses_minus_repeat = 0;
 static int s_max_pulses_plus_repeat = 0;
 static int s_settle_time_minus_repeat = 0;
 static int s_settle_time_plus_repeat = 0;
-static int s_coast_ratio_minus_repeat = 0;
-static int s_coast_ratio_plus_repeat = 0;
-static int s_confirmation_window_minus_repeat = 0;
-static int s_confirmation_window_plus_repeat = 0;
+
 static int s_post_purge_pulse_count_minus_repeat = 0;
 static int s_post_purge_pulse_count_plus_repeat = 0;
 
@@ -123,54 +121,27 @@ static void settle_time_plus_cb(lv_event_t* e) {
     lv_label_set_text(s_settle_time_value, buf);
 }
 
-static void coast_ratio_minus_cb(lv_event_t* e) {
+static void stop_at_pct_minus_cb(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_PRESSED) { s_coast_ratio_minus_repeat = 0; return; }
+    if (code == LV_EVENT_PRESSED) { s_stop_at_pct_minus_repeat = 0; return; }
     if (code != LV_EVENT_CLICKED && code != LV_EVENT_LONG_PRESSED_REPEAT) return;
-    if (code == LV_EVENT_LONG_PRESSED_REPEAT) s_coast_ratio_minus_repeat++;
-    float ratioStep = 0.1f * ui_repeat_step_multiplier(s_coast_ratio_minus_repeat);
-    g_ui_state.coast_ratio -= ratioStep;
-    if (g_ui_state.coast_ratio < 0.5f) g_ui_state.coast_ratio = 0.5f;
-    char coastBuf[8]; snprintf(coastBuf, sizeof(coastBuf), "%.1f", g_ui_state.coast_ratio);
-    lv_label_set_text(s_coast_ratio_value, coastBuf);
+    if (code == LV_EVENT_LONG_PRESSED_REPEAT) s_stop_at_pct_minus_repeat++;
+    float step = 1.0f * ui_repeat_step_multiplier(s_stop_at_pct_minus_repeat);
+    g_ui_state.stop_at_percent -= step;
+    if (g_ui_state.stop_at_percent < 80.0f) g_ui_state.stop_at_percent = 80.0f;
+    char buf[8]; snprintf(buf, sizeof(buf), "%.0f%%", g_ui_state.stop_at_percent);
+    lv_label_set_text(s_stop_at_pct_value, buf);
 }
-static void coast_ratio_plus_cb(lv_event_t* e) {
+static void stop_at_pct_plus_cb(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_PRESSED) { s_coast_ratio_plus_repeat = 0; return; }
+    if (code == LV_EVENT_PRESSED) { s_stop_at_pct_plus_repeat = 0; return; }
     if (code != LV_EVENT_CLICKED && code != LV_EVENT_LONG_PRESSED_REPEAT) return;
-    if (code == LV_EVENT_LONG_PRESSED_REPEAT) s_coast_ratio_plus_repeat++;
-    float ratioStep = 0.1f * ui_repeat_step_multiplier(s_coast_ratio_plus_repeat);
-    g_ui_state.coast_ratio += ratioStep;
-    if (g_ui_state.coast_ratio > 3.0f) g_ui_state.coast_ratio = 3.0f;
-    char coastBuf[8]; snprintf(coastBuf, sizeof(coastBuf), "%.1f", g_ui_state.coast_ratio);
-    lv_label_set_text(s_coast_ratio_value, coastBuf);
-}
-
-static void confirmation_window_minus_cb(lv_event_t* e) {
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_PRESSED) { s_confirmation_window_minus_repeat = 0; return; }
-    if (code != LV_EVENT_CLICKED && code != LV_EVENT_LONG_PRESSED_REPEAT) return;
-    if (code == LV_EVENT_LONG_PRESSED_REPEAT) s_confirmation_window_minus_repeat++;
-    unsigned long step = 100UL * (unsigned long)ui_repeat_step_multiplier(s_confirmation_window_minus_repeat);
-    if (step > g_ui_state.confirmation_window_ms) {
-        g_ui_state.confirmation_window_ms = 300UL;
-    } else {
-        g_ui_state.confirmation_window_ms -= step;
-        if (g_ui_state.confirmation_window_ms < 300UL) g_ui_state.confirmation_window_ms = 300UL;
-    }
-    char confirmBuf[8]; snprintf(confirmBuf, sizeof(confirmBuf), "%lu", g_ui_state.confirmation_window_ms);
-    lv_label_set_text(s_confirmation_window_value, confirmBuf);
-}
-static void confirmation_window_plus_cb(lv_event_t* e) {
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_PRESSED) { s_confirmation_window_plus_repeat = 0; return; }
-    if (code != LV_EVENT_CLICKED && code != LV_EVENT_LONG_PRESSED_REPEAT) return;
-    if (code == LV_EVENT_LONG_PRESSED_REPEAT) s_confirmation_window_plus_repeat++;
-    unsigned long step = 100UL * (unsigned long)ui_repeat_step_multiplier(s_confirmation_window_plus_repeat);
-    g_ui_state.confirmation_window_ms += step;
-    if (g_ui_state.confirmation_window_ms > 2000UL) g_ui_state.confirmation_window_ms = 2000UL;
-    char confirmBuf[8]; snprintf(confirmBuf, sizeof(confirmBuf), "%lu", g_ui_state.confirmation_window_ms);
-    lv_label_set_text(s_confirmation_window_value, confirmBuf);
+    if (code == LV_EVENT_LONG_PRESSED_REPEAT) s_stop_at_pct_plus_repeat++;
+    float step = 1.0f * ui_repeat_step_multiplier(s_stop_at_pct_plus_repeat);
+    g_ui_state.stop_at_percent += step;
+    if (g_ui_state.stop_at_percent > 95.0f) g_ui_state.stop_at_percent = 95.0f;
+    char buf[8]; snprintf(buf, sizeof(buf), "%.0f%%", g_ui_state.stop_at_percent);
+    lv_label_set_text(s_stop_at_pct_value, buf);
 }
 
 static void post_purge_toggle_cb(lv_event_t* e) {
@@ -394,15 +365,11 @@ lv_obj_t* ui_screen_grind_params_create(void) {
     create_param_row(scroll_area, 216, "Settle Time", "Scale settle (ms)",
                      &s_settle_time_value, settle_time_minus_cb, settle_time_plus_cb, settle_buf);
 
-    char coast_buf[8]; snprintf(coast_buf, sizeof(coast_buf), "%.1f", g_ui_state.coast_ratio);
-    create_param_row(scroll_area, 324, "Coast Ratio", "Latency-to-coast multiplier",
-                     &s_coast_ratio_value, coast_ratio_minus_cb, coast_ratio_plus_cb, coast_buf);
+    char stop_pct_buf[8]; snprintf(stop_pct_buf, sizeof(stop_pct_buf), "%.0f%%", g_ui_state.stop_at_percent);
+    create_param_row(scroll_area, 324, "Stop At %", "Motor stop saat berat >= target x pct (80-95%)",
+                     &s_stop_at_pct_value, stop_at_pct_minus_cb, stop_at_pct_plus_cb, stop_pct_buf);
 
-    char confirm_buf[8]; snprintf(confirm_buf, sizeof(confirm_buf), "%lu", g_ui_state.confirmation_window_ms);
-    create_param_row(scroll_area, 432, "Confirm Window", "Flow confirmation time (ms)",
-                     &s_confirmation_window_value, confirmation_window_minus_cb, confirmation_window_plus_cb, confirm_buf);
-
-    create_toggle_row(scroll_area, 540, "Post-Purge", "Getar buang sisa chute",
+    create_toggle_row(scroll_area, 432, "Post-Purge", "Getar buang sisa chute",
                       &s_post_purge_toggle_btn, &s_post_purge_toggle_label,
                       post_purge_toggle_cb, g_ui_state.post_purge_enabled);
     ui_update_toggle_visual(s_post_purge_toggle_btn, s_post_purge_toggle_label, g_ui_state.post_purge_enabled);

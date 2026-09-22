@@ -174,8 +174,8 @@ lv_obj_t* ui_screen_done_create(void) {
     lv_obj_set_flex_align(stats_row2, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(stats_row2, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_latency_stat = create_compact_stat_item(stats_row2, "LATENCY");
-    s_stop_target_stat = create_compact_stat_item(stats_row2, "STOP TGT");
+    s_latency_stat     = create_compact_stat_item(stats_row2, "PULSES");
+    s_stop_target_stat = create_compact_stat_item(stats_row2, "STOP AT%");
 
     // Tombol New Grind
     // STANDARISASI (permintaan eksplisit -- lihat catatan lengkap di
@@ -245,9 +245,9 @@ void ui_screen_done_update(void) {
     // di ui_screen_done_create(). child index 1 (bukan 0) karena
     // create_compact_stat_item() bikin label DULU baru value (beda
     // urutan dari create_stat_item() yang value dulu baru label).
-    snprintf(buf, sizeof(buf), "%lu ms", g_ui_state.grind_latency_ms);
+    snprintf(buf, sizeof(buf), "%d", g_ui_state.pulse_count);
     lv_label_set_text(lv_obj_get_child(s_latency_stat, 1), buf);
 
-    snprintf(buf, sizeof(buf), "%.3f g", g_ui_state.motor_stop_target_weight_g);
+    snprintf(buf, sizeof(buf), "%.0f%%", g_ui_state.stop_at_percent);
     lv_label_set_text(lv_obj_get_child(s_stop_target_stat, 1), buf);
 }

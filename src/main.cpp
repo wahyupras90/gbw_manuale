@@ -462,15 +462,14 @@ static void loadSettingsFromNVS() {
     g_ui_state.accuracy_tolerance_g = settingsPrefs.getFloat("tol_g", GRIND_ACCURACY_TOLERANCE_G);
     g_ui_state.max_pulse_attempts = settingsPrefs.getInt("max_pulse", GRIND_MAX_PULSE_ATTEMPTS);
     g_ui_state.settle_time_ms = settingsPrefs.getULong("settle_ms", GRIND_SCALE_PRECISION_SETTLING_TIME_MS);
-    g_ui_state.coast_ratio = settingsPrefs.getFloat("coast_ratio", GRIND_LATENCY_TO_COAST_RATIO);
-    g_ui_state.confirmation_window_ms = settingsPrefs.getULong("confirm_ms", GRIND_LATENCY_CONFIRMATION_MS);
+    g_ui_state.stop_at_percent = settingsPrefs.getFloat("stop_pct", 88.0f);
     g_ui_state.post_purge_enabled = settingsPrefs.getBool("purge_en", false);
     g_ui_state.post_purge_pulse_count = settingsPrefs.getInt("purge_cnt", GRIND_POST_PURGE_PULSE_COUNT_DEFAULT);
     g_ui_state.stability_threshold_g = settingsPrefs.getFloat("stab_thresh", 0.3f);
     settingsPrefs.end();
-    Serial.printf("[NVS] Settings dimuat -- tolerance=%.3fg max_pulses=%d settle=%lums coast_ratio=%.2f confirm_window=%lums post_purge=%s(%d)\n",
+    Serial.printf("[NVS] Settings dimuat -- tolerance=%.3fg max_pulses=%d settle=%lums stop_pct=%.0f%% post_purge=%s(%d)\n",
                   g_ui_state.accuracy_tolerance_g, g_ui_state.max_pulse_attempts,
-                  g_ui_state.settle_time_ms, g_ui_state.coast_ratio, g_ui_state.confirmation_window_ms,
+                  g_ui_state.settle_time_ms, g_ui_state.stop_at_percent,
                   g_ui_state.post_purge_enabled ? "ON" : "OFF", g_ui_state.post_purge_pulse_count);
 }
 
@@ -488,15 +487,14 @@ extern void saveSettingsToNVS() {
     settingsPrefs.putFloat("tol_g", g_ui_state.accuracy_tolerance_g);
     settingsPrefs.putInt("max_pulse", g_ui_state.max_pulse_attempts);
     settingsPrefs.putULong("settle_ms", g_ui_state.settle_time_ms);
-    settingsPrefs.putFloat("coast_ratio", g_ui_state.coast_ratio);
-    settingsPrefs.putULong("confirm_ms", g_ui_state.confirmation_window_ms);
+    settingsPrefs.putFloat("stop_pct", g_ui_state.stop_at_percent);
     settingsPrefs.putBool("purge_en", g_ui_state.post_purge_enabled);
     settingsPrefs.putInt("purge_cnt", g_ui_state.post_purge_pulse_count);
     settingsPrefs.putFloat("stab_thresh", g_ui_state.stability_threshold_g);
     settingsPrefs.end();
-    Serial.printf("[NVS] Settings disimpan -- tolerance=%.3fg max_pulses=%d settle=%lums coast_ratio=%.2f confirm_window=%lums post_purge=%s(%d)\n",
+    Serial.printf("[NVS] Settings disimpan -- tolerance=%.3fg max_pulses=%d settle=%lums stop_pct=%.0f%% post_purge=%s(%d)\n",
                   g_ui_state.accuracy_tolerance_g, g_ui_state.max_pulse_attempts,
-                  g_ui_state.settle_time_ms, g_ui_state.coast_ratio, g_ui_state.confirmation_window_ms,
+                  g_ui_state.settle_time_ms, g_ui_state.stop_at_percent,
                   g_ui_state.post_purge_enabled ? "ON" : "OFF", g_ui_state.post_purge_pulse_count);
 }
 
@@ -740,23 +738,12 @@ DebugSnapshot grind_get_debug_snapshot() {
     snap.homeGestureCount = ui_home_gesture_count();
     snap.touchRecoveryCount = lv_port_touch_recovery_count();
 
-    // Checkpoint terakhir -- baca dari RAM (real-time, update tiap
-    // saveCheckpoint() termasuk intermediate yang tidak ke NVS).
-    // Setelah reboot, s_lastCpRam berisi "(belum ada)" -- Debug screen
-    // akan menampilkan nilai NVS (checkpoint penting terakhir sebelum
-    // reboot) via field terpisah kalau diperlukan. Untuk sekarang,
-    // cukup RAM karena tujuan utama adalah real-time monitoring.
+    diagPrefs.begin("gbwdiag", true);
     snap.lastCheckpoint = String(s_lastCpRam);
     snap.lastCheckpointMs = s_lastCpRamMs;
-
-    // Last Grind Data -- tetap dari NVS karena ini data lintas sesi
-    // (survive reboot), berbeda dari checkpoint yang real-time.
-    diagPrefs.begin("gbwdiag", true);  // read-only
     snap.lastGrindWeightAtMotorStop = diagPrefs.getFloat("lg_stop_w", NAN);
-    snap.lastGrindPredictedCoast    = diagPrefs.getFloat("lg_pred_c", NAN);
     snap.lastGrindActualCoast       = diagPrefs.getFloat("lg_act_c",  NAN);
-    snap.lastGrindCoastRatioUsed    = diagPrefs.getFloat("lg_ratio",  NAN);
-    snap.lastGrindLatencyMs         = diagPrefs.getULong("lg_latency", 0);
+    snap.lastGrindStopAtPercent     = diagPrefs.getFloat("lg_stop_pct", NAN);
     snap.lastGrindFinalWeightG      = diagPrefs.getFloat("lg_final",  NAN);
     snap.lastGrindPulseCount        = diagPrefs.getInt("lg_pulses",   0);
     diagPrefs.end();
@@ -895,8 +882,7 @@ static void syncUiSettingsToGrindController() {
     grindController.setAccuracyToleranceG(g_ui_state.accuracy_tolerance_g);
     grindController.setMaxPulseAttempts(g_ui_state.max_pulse_attempts);
     grindController.setSettlingTimeMs(g_ui_state.settle_time_ms);  // BARU -- pola sama
-    grindController.setCoastRatio(g_ui_state.coast_ratio);  // BARU -- pola sama
-    grindController.setConfirmationWindowMs(g_ui_state.confirmation_window_ms);  // BARU -- pola sama
+    grindController.setStopAtPercent(g_ui_state.stop_at_percent);
     grindController.setPostPurgeEnabled(g_ui_state.post_purge_enabled);
     grindController.setPostPurgePulseCount(g_ui_state.post_purge_pulse_count);
     grindController.setStabilityThresholdG(g_ui_state.stability_threshold_g);
@@ -937,9 +923,8 @@ static void syncGrindControllerToUi() {
     // boot), g_ui_state.target_absolute_g/start_weight_g TETAP pakai
     // default dari ui_screen_manager.cpp -- tidak ditimpa 0 di sini.
     g_ui_state.flow_rate_gps = grindController.currentFlowGps();
-    g_ui_state.flow_start_confirmed = grindController.flowStartConfirmed();
-    g_ui_state.grind_latency_ms = grindController.grindLatencyMs();
-    g_ui_state.motor_stop_target_weight_g = grindController.motorStopTargetWeightG();
+    g_ui_state.flow_start_confirmed = false;
+    g_ui_state.pulse_count = grindController.pulseAttempts();
     g_ui_state.pulse_count = grindController.pulseAttempts();
     // pulse_error_g -- selama PULSE_CORRECTION, "error saat ini" =
     // currentWeight - target (BUKAN finalErrorG(), yang baru valid
@@ -988,10 +973,8 @@ static void handleGrindStateTransitionForUi() {
         if (now == GrindState::COMPLETE) {
             diagPrefs.begin("gbwdiag", false);
             diagPrefs.putFloat("lg_stop_w", grindController.lastGrindWeightAtMotorStop());
-            diagPrefs.putFloat("lg_pred_c", grindController.lastGrindPredictedCoast());
             diagPrefs.putFloat("lg_act_c",  grindController.lastGrindActualCoast());
-            diagPrefs.putFloat("lg_ratio",  grindController.lastGrindCoastRatioUsed());
-            diagPrefs.putULong("lg_latency", grindController.lastGrindLatencyMs());
+            diagPrefs.putFloat("lg_stop_pct", grindController.lastGrindStopAtPercent());
             diagPrefs.putFloat("lg_final",  grindController.lastGrindFinalWeightG());
             diagPrefs.putInt("lg_pulses",   grindController.lastGrindPulseCount());
             diagPrefs.end();
@@ -1063,12 +1046,10 @@ static void handleGrindCommand(const String& line) {
         // grind SAAT INI/TERAKHIR, supaya operator bisa lihat persis
         // apa yang terjadi.
         Serial.println("========================================");
-        Serial.println("[GRIND STATUS -- MODEL REAL-TIME]");
-        Serial.printf("  GRIND_LATENCY_TO_COAST_RATIO (config.h) : %.3f\n", (float)GRIND_LATENCY_TO_COAST_RATIO);
-        Serial.printf("  Flow start confirmed sesi ini            : %s\n", grindController.flowStartConfirmed() ? "YA" : "BELUM");
-        Serial.printf("  grind_latency_ms (T_onset) sesi ini      : %lu ms\n", grindController.grindLatencyMs());
-        Serial.printf("  motor_stop_target_weight_g (saat ini)    : %.3f g\n", grindController.motorStopTargetWeightG());
-        Serial.printf("  P95 flow sesi (untuk pulsa)               : %.2f gps\n", grindController.sessionPulseFlowGps());
+        Serial.println("[GRIND STATUS -- FIXED STOP]");
+        Serial.printf("  Stop At %%                               : %.0f%%\n", grindController.stopAtPercent());
+        Serial.printf("  Target                                  : %.2f g\n", grindController.targetAbsoluteG());
+        Serial.printf("  Current weight                          : %.2f g\n", grindController.currentWeightG());
         // finalWeightG/finalErrorG -- BARU ditambahkan (sebelumnya
         // tidak ditampilkan 'gs' sama sekali), supaya prosedur
         // kalibrasi ratio yang benar (lihat README, pakai grindLatencyMs
@@ -1086,7 +1067,7 @@ static void handleGrindCommand(const String& line) {
         Serial.printf("  State grind sekarang: %d, result: %d, abortReason: %d\n",
                       (int)grindController.state(), (int)grindController.result(), (int)grindController.abortReason());
         Serial.println("  CATATAN: GRIND_LATENCY_TO_COAST_RATIO adalah TITIK AWAL (1.0), belum tentu akurat untuk hardware ini.");
-        Serial.println("  Kalibrasi: pakai 'grind <target>' berulang + 'gs' setelah TIAP sesi (grind_latency_ms & final_error_g di atas dari sesi YANG SAMA) -- lihat README, JANGAN campur dengan data 'g <target>' (LatencyCalibrator, sesi terpisah).");
+        Serial.println("  Tuning: ubah Stop At % di Grind Parameters, lihat Pulses di Debug screen.");
     } else if (line == "raw" || line == "RAW") {
         // Debug -- baca beberapa sample mentah HX711 langsung (blocking),
         // berguna untuk verifikasi wiring/kalibrasi tanpa perlu proses

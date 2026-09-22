@@ -85,9 +85,8 @@ typedef struct {
 
     float current_weight_g;
     float flow_rate_gps;        // flow_now real-time, NAN kalau belum valid (lihat GrindController::currentFlowGps())
-    bool  flow_start_confirmed; // dari GrindController::flowStartConfirmed() -- state WAIT_FLOW_START vs GRINDING
-    unsigned long grind_latency_ms;  // dari GrindController::grindLatencyMs(), 0 kalau belum confirmed
-    float motor_stop_target_weight_g;  // dari GrindController::motorStopTargetWeightG() -- DITAMBAHKAN untuk kalibrasi GRIND_LATENCY_TO_COAST_RATIO tanpa Serial (layar Done). Default/belum-dihitung = 0.0f (BUKAN NAN -- lihat inisialisasi motorStopTargetWeightG_ di grind_controller.cpp), jadi UI tampilkan apa adanya, TIDAK perlu cek isnan().
+    bool  flow_start_confirmed;
+    float stop_at_percent;        // menggantikan coast_ratio -- motor stop saat berat >= target × pct/100
     int   pulse_count;
     float pulse_error_g;
     unsigned long grind_duration_ms;
@@ -107,8 +106,7 @@ typedef struct {
     float accuracy_tolerance_g;   // default dari GRIND_ACCURACY_TOLERANCE_G, bisa diubah user
     int   max_pulse_attempts;     // default dari GRIND_MAX_PULSE_ATTEMPTS, bisa diubah user
     unsigned long settle_time_ms; // BARU -- default dari GRIND_SCALE_PRECISION_SETTLING_TIME_MS, bisa diubah user
-    float coast_ratio;            // BARU -- default dari GRIND_LATENCY_TO_COAST_RATIO, bisa diubah user
-    unsigned long confirmation_window_ms;  // BARU -- default dari GRIND_LATENCY_CONFIRMATION_MS, bisa diubah user
+    float stop_at_percent;        // motor stop saat berat >= target × pct/100, range 80-95, default 88
     bool post_purge_enabled;      // BARU -- default false, bisa diaktifkan lewat switch di Settings
     int post_purge_pulse_count;   // BARU -- default dari GRIND_POST_PURGE_PULSE_COUNT_DEFAULT, bisa diubah user
     float stability_threshold_g;  // BARU -- threshold pre-grind stability check, default 0.3g
