@@ -126,10 +126,10 @@ static void stop_at_pct_minus_cb(lv_event_t* e) {
     if (code == LV_EVENT_PRESSED) { s_stop_at_pct_minus_repeat = 0; return; }
     if (code != LV_EVENT_CLICKED && code != LV_EVENT_LONG_PRESSED_REPEAT) return;
     if (code == LV_EVENT_LONG_PRESSED_REPEAT) s_stop_at_pct_minus_repeat++;
-    float step = 1.0f * ui_repeat_step_multiplier(s_stop_at_pct_minus_repeat);
-    g_ui_state.stop_at_percent -= step;
-    if (g_ui_state.stop_at_percent < 80.0f) g_ui_state.stop_at_percent = 80.0f;
-    char buf[8]; snprintf(buf, sizeof(buf), "%.0f%%", g_ui_state.stop_at_percent);
+    float step = 0.1f * ui_repeat_step_multiplier(s_stop_at_pct_minus_repeat);
+    g_ui_state.early_stop_g -= step;
+    if (g_ui_state.early_stop_g < 0.5f) g_ui_state.early_stop_g = 0.5f;
+    char buf[8]; snprintf(buf, sizeof(buf), "%.1fg", g_ui_state.early_stop_g);
     lv_label_set_text(s_stop_at_pct_value, buf);
 }
 static void stop_at_pct_plus_cb(lv_event_t* e) {
@@ -137,10 +137,10 @@ static void stop_at_pct_plus_cb(lv_event_t* e) {
     if (code == LV_EVENT_PRESSED) { s_stop_at_pct_plus_repeat = 0; return; }
     if (code != LV_EVENT_CLICKED && code != LV_EVENT_LONG_PRESSED_REPEAT) return;
     if (code == LV_EVENT_LONG_PRESSED_REPEAT) s_stop_at_pct_plus_repeat++;
-    float step = 1.0f * ui_repeat_step_multiplier(s_stop_at_pct_plus_repeat);
-    g_ui_state.stop_at_percent += step;
-    if (g_ui_state.stop_at_percent > 95.0f) g_ui_state.stop_at_percent = 95.0f;
-    char buf[8]; snprintf(buf, sizeof(buf), "%.0f%%", g_ui_state.stop_at_percent);
+    float step = 0.1f * ui_repeat_step_multiplier(s_stop_at_pct_plus_repeat);
+    g_ui_state.early_stop_g += step;
+    if (g_ui_state.early_stop_g > 10.0f) g_ui_state.early_stop_g = 10.0f;
+    char buf[8]; snprintf(buf, sizeof(buf), "%.1fg", g_ui_state.early_stop_g);
     lv_label_set_text(s_stop_at_pct_value, buf);
 }
 
@@ -365,8 +365,8 @@ lv_obj_t* ui_screen_grind_params_create(void) {
     create_param_row(scroll_area, 216, "Settle Time", "Scale settle (ms)",
                      &s_settle_time_value, settle_time_minus_cb, settle_time_plus_cb, settle_buf);
 
-    char stop_pct_buf[8]; snprintf(stop_pct_buf, sizeof(stop_pct_buf), "%.0f%%", g_ui_state.stop_at_percent);
-    create_param_row(scroll_area, 324, "Stop At %", "Motor stop saat berat >= target x pct (80-95%)",
+    char stop_pct_buf[8]; snprintf(stop_pct_buf, sizeof(stop_pct_buf), "%.1fg", g_ui_state.early_stop_g);
+    create_param_row(scroll_area, 324, "Early Stop G", "Motor stop X gram sebelum target (0.5-10g)",
                      &s_stop_at_pct_value, stop_at_pct_minus_cb, stop_at_pct_plus_cb, stop_pct_buf);
 
     create_toggle_row(scroll_area, 432, "Post-Purge", "Getar buang sisa chute",

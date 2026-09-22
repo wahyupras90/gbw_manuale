@@ -128,7 +128,7 @@ lv_obj_t* ui_screen_predictive_grind_create(void) {
     lv_obj_clear_flag(stats_row, LV_OBJ_FLAG_SCROLLABLE);
 
     s_flow_stat = create_stat_item(stats_row, "FLOW G/S");
-    s_latency_stat = create_stat_item(stats_row, "STOP AT%");
+    s_latency_stat = create_stat_item(stats_row, "EARLY G");
     s_pulse_stat = create_stat_item(stats_row, "PULSES");
 
     // Tombol Stop
@@ -197,7 +197,7 @@ void ui_screen_predictive_grind_update(void) {
         }
         lv_label_set_text(lv_obj_get_child(s_flow_stat, 0), buf);
 
-        snprintf(buf, sizeof(buf), "%.0f%%", g_ui_state.stop_at_percent);
+        snprintf(buf, sizeof(buf), "%.1fg", g_ui_state.early_stop_g);
         lv_label_set_text(lv_obj_get_child(s_latency_stat, 0), buf);
     }
 

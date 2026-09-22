@@ -175,7 +175,7 @@ lv_obj_t* ui_screen_done_create(void) {
     lv_obj_clear_flag(stats_row2, LV_OBJ_FLAG_SCROLLABLE);
 
     s_latency_stat     = create_compact_stat_item(stats_row2, "COAST G");
-    s_stop_target_stat = create_compact_stat_item(stats_row2, "STOP AT%");
+    s_stop_target_stat = create_compact_stat_item(stats_row2, "EARLY G");
 
     // Tombol New Grind
     // STANDARISASI (permintaan eksplisit -- lihat catatan lengkap di
@@ -241,7 +241,7 @@ void ui_screen_done_update(void) {
     snprintf(buf, sizeof(buf), "%.1fs", g_ui_state.grind_duration_ms / 1000.0f);
     lv_label_set_text(lv_obj_get_child(s_duration_stat, 0), buf);
 
-    // Baris kedua: COAST G (actual coast setelah motor stop) & STOP AT%.
+    // Baris kedua: COAST G & EARLY G (early stop gram yang dipakai sesi ini).
     // child index 1 karena create_compact_stat_item() bikin label dulu
     // baru value (beda urutan dari create_stat_item()).
     if (!isnan(g_ui_state.last_coast_g)) {
@@ -251,6 +251,6 @@ void ui_screen_done_update(void) {
     }
     lv_label_set_text(lv_obj_get_child(s_latency_stat, 1), buf);
 
-    snprintf(buf, sizeof(buf), "%.0f%%", g_ui_state.stop_at_percent);
+    snprintf(buf, sizeof(buf), "%.1fg", g_ui_state.early_stop_g);
     lv_label_set_text(lv_obj_get_child(s_stop_target_stat, 1), buf);
 }

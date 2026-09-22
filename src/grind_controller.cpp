@@ -100,7 +100,7 @@ GrindController::GrindController(WeightFilter* weightFilter, MotorController* mo
       accuracyToleranceG_(GRIND_ACCURACY_TOLERANCE_G), maxPulseAttempts_(GRIND_MAX_PULSE_ATTEMPTS),
       pendingAccuracyToleranceG_(GRIND_ACCURACY_TOLERANCE_G), pendingMaxPulseAttempts_(GRIND_MAX_PULSE_ATTEMPTS),
       settlingTimeMs_(GRIND_SCALE_PRECISION_SETTLING_TIME_MS), pendingSettlingTimeMs_(GRIND_SCALE_PRECISION_SETTLING_TIME_MS),
-      stopAtPercent_(88.0f), pendingStopAtPercent_(88.0f),
+      earlyStopG_(2.0f), pendingEarlyStopG_(2.0f),
       postPurgeEnabled_(false), pendingPostPurgeEnabled_(false),
       postPurgePulseCount_(GRIND_POST_PURGE_PULSE_COUNT_DEFAULT), pendingPostPurgePulseCount_(GRIND_POST_PURGE_PULSE_COUNT_DEFAULT),
       postPurgePulsesRemaining_(0), purgeMotorOnMs_(0),
@@ -109,7 +109,7 @@ GrindController::GrindController(WeightFilter* weightFilter, MotorController* mo
       waitStableStartMs_(0), waitStableOkSinceMs_(0), waitStableLastWeight_(NAN),
       weightAtMotorStop_(NAN), weightAfterSettle_(NAN),
       lastGrindWeightAtMotorStop_(NAN), lastGrindActualCoast_(NAN),
-      lastGrindStopAtPercent_(NAN), lastGrindFinalWeightG_(NAN), lastGrindPulseCount_(0) {}
+      lastGrindEarlyStopG_(NAN), lastGrindFinalWeightG_(NAN), lastGrindPulseCount_(0) {}
 
 // ------------------------------------------------------------
 // Getter kecil
@@ -240,7 +240,7 @@ bool GrindController::startGrind(float targetDoseG) {
     accuracyToleranceG_  = pendingAccuracyToleranceG_;
     maxPulseAttempts_    = pendingMaxPulseAttempts_;
     settlingTimeMs_      = pendingSettlingTimeMs_;
-    stopAtPercent_       = pendingStopAtPercent_;
+    earlyStopG_          = pendingEarlyStopG_;
     postPurgeEnabled_    = pendingPostPurgeEnabled_;
     postPurgePulseCount_ = pendingPostPurgePulseCount_;
     postPurgePulsesRemaining_ = 0;
@@ -258,8 +258,8 @@ bool GrindController::startGrind(float targetDoseG) {
     resetFlowHistory();
     sessionPulseFlowGps_ = NAN;
 
-    Serial.printf("[GRIND] Mulai -- dose=%.2fg tare=%.2fg target=%.2fg (stop@%.0f%%, tolerance=%.3fg, max_pulses=%d, settle=%lums)\n",
-                  targetDoseG_, startWeightG_, targetAbsoluteG_, stopAtPercent_,
+    Serial.printf("[GRIND] Mulai -- dose=%.2fg tare=%.2fg target=%.2fg (earlyStop=%.2fg, tolerance=%.3fg, max_pulses=%d, settle=%lums)\n",
+                  targetDoseG_, startWeightG_, targetAbsoluteG_, earlyStopG_,
                   accuracyToleranceG_, maxPulseAttempts_, settlingTimeMs_);
 
     transitionTo(GrindState::WAIT_STABLE);
@@ -434,12 +434,10 @@ void GrindController::onWeightSample(float rawWeightG, unsigned long sampleTimes
             break;
         }
         case GrindState::GRINDING: {
-            // Fixed stop percentage -- motor berhenti saat berat >=
-            // startWeight + (dose * stopAtPercent_ / 100).
-            // BENAR: persentase dari DOSE (kopi yang ingin ditambahkan),
-            // BUKAN dari berat absolut targetAbsoluteG_ yang menyertakan
-            // berat portafilter/wadah (bug P0 v1.0.35).
-            float stopThreshold = startWeightG_ + (targetDoseG_ * stopAtPercent_ / 100.0f);
+            // Early Stop G -- motor berhenti earlyStopG_ gram sebelum target.
+            // Lebih prediktif dari persentase: jarak ke target selalu sama
+            // terlepas dari besar dose (2g untuk 18g = 2g untuk 20g).
+            float stopThreshold = targetAbsoluteG_ - earlyStopG_;
 
             // Rekam flow ke history untuk P95 pulse correction
             FlowRateResult flow = weightFilter_->computeFlowRate();
@@ -448,8 +446,8 @@ void GrindController::onWeightSample(float rawWeightG, unsigned long sampleTimes
             }
 
             if (currentWeight >= stopThreshold) {
-                Serial.printf("[GRIND] Fixed stop -- berat %.2fg >= threshold %.2fg (%.0f%% dari %.2fg).\n",
-                              currentWeight, stopThreshold, stopAtPercent_, targetAbsoluteG_);
+                Serial.printf("[GRIND] Early stop -- berat %.2fg >= threshold %.2fg (earlyStop=%.2fg, target=%.2fg).\n",
+                              currentWeight, stopThreshold, earlyStopG_, targetAbsoluteG_);
                 saveCheckpoint("motor_stop");
 
                 // Capture berat saat motor stop
@@ -725,16 +723,16 @@ void GrindController::finishAsComplete() {
         saveCheckpoint("done_inaccurate");
     }
 
-    Serial.printf("[GRIND] SELESAI -- hasil=%s berat_akhir=%.2fg target=%.2fg error=%.3fg pulse_attempts=%d durasi=%lums stop@%.0f%%\n",
+    Serial.printf("[GRIND] SELESAI -- hasil=%s berat_akhir=%.2fg target=%.2fg error=%.3fg pulse_attempts=%d durasi=%lums earlyStop=%.2fg\n",
                   result_ == GrindResult::SUCCESS ? "SUCCESS" : "INACCURATE",
-                  finalWeightG_, targetAbsoluteG_, errorG, pulseAttempts_, grindDurationMs(), stopAtPercent_);
+                  finalWeightG_, targetAbsoluteG_, errorG, pulseAttempts_, grindDurationMs(), earlyStopG_);
 
     // Last Grind Data
     lastGrindWeightAtMotorStop_ = weightAtMotorStop_;
     lastGrindActualCoast_       = (isnan(weightAtMotorStop_) || isnan(weightAfterSettle_))
                                   ? NAN
                                   : weightAfterSettle_ - weightAtMotorStop_;
-    lastGrindStopAtPercent_     = stopAtPercent_;
+    lastGrindEarlyStopG_        = earlyStopG_;
     lastGrindFinalWeightG_      = finalWeightG_;
     lastGrindPulseCount_        = pulseAttempts_;
 

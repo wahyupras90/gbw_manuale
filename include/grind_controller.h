@@ -226,12 +226,12 @@ public:
     // di atas -- alasan sama: mencegah perubahan Settings di tengah
     // grinding mengubah timing sesi yang sedang berjalan.
     void setSettlingTimeMs(unsigned long settlingMs) { pendingSettlingTimeMs_ = settlingMs; }
-    // Stop At Percentage -- motor berhenti saat berat >= target × stopAtPercent_ / 100
+    // Early Stop G -- motor berhenti saat berat >= startWeight + dose - earlyStopG_
     // Menggantikan model predictive (latency × flow × coastRatio).
-    // Range 80–95%, default 88%. Sisa ditutup coast + post-purge + pulse correction.
-    void setStopAtPercent(float pct) {
-        if (!isfinite(pct) || pct < 80.0f || pct > 95.0f) pct = 88.0f;
-        pendingStopAtPercent_ = pct;
+    // Range 0.5–10.0g, default 2.0g. Motor berhenti earlyStopG_ gram sebelum target.
+    void setEarlyStopG(float g) {
+        if (!isfinite(g) || g < 0.5f || g > 10.0f) g = 2.0f;
+        pendingEarlyStopG_ = g;
     }
     // POST_PURGE enable/pulse count
     void setPostPurgeEnabled(bool enabled) { pendingPostPurgeEnabled_ = enabled; }
@@ -256,7 +256,7 @@ public:
     // ditampilkan di Debug screen section LAST GRIND.
     float lastGrindWeightAtMotorStop() const { return lastGrindWeightAtMotorStop_; }
     float lastGrindActualCoast() const { return lastGrindActualCoast_; }
-    float lastGrindStopAtPercent() const { return lastGrindStopAtPercent_; }
+    float lastGrindEarlyStopG() const { return lastGrindEarlyStopG_; }
     float lastGrindFinalWeightG() const { return lastGrindFinalWeightG_; }
     int lastGrindPulseCount() const { return lastGrindPulseCount_; }
 
@@ -285,7 +285,7 @@ public:
     int pulseAttempts() const { return pulseAttempts_; }
     unsigned long grindDurationMs() const;  // sejak startGrind() dipanggil
 
-    float stopAtPercent() const { return stopAtPercent_; }
+    float earlyStopG() const { return earlyStopG_; }
     float lastMotorRttMs() const { return lastMotorRttMs_; }
 
 private:
@@ -338,8 +338,8 @@ private:
     int pendingMaxPulseAttempts_;
     unsigned long settlingTimeMs_;
     unsigned long pendingSettlingTimeMs_;
-    float stopAtPercent_;
-    float pendingStopAtPercent_;
+    float earlyStopG_;
+    float pendingEarlyStopG_;
     bool postPurgeEnabled_;
     bool pendingPostPurgeEnabled_;
     int postPurgePulseCount_;
@@ -359,7 +359,7 @@ private:
     float weightAfterSettle_;
     float lastGrindWeightAtMotorStop_;
     float lastGrindActualCoast_;
-    float lastGrindStopAtPercent_;
+    float lastGrindEarlyStopG_;
     float lastGrindFinalWeightG_;
     int lastGrindPulseCount_;
     void transitionTo(GrindState newState);

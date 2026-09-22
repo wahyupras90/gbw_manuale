@@ -166,8 +166,8 @@ void ui_screen_debug_update(void) {
     fmtF(b, sizeof(b), snap.lastGrindActualCoast, "g");       lv_label_set_text(s_lg_act_coast_value, b);
     lv_obj_set_style_text_color(s_lg_act_coast_value, COLOR_TEXT_PRIMARY, 0);
 
-    if (!isnan(snap.lastGrindStopAtPercent)) snprintf(b, sizeof(b), "%.0f%%", snap.lastGrindStopAtPercent);
-    else snprintf(b, sizeof(b), "--");
+    if (!isnan(snap.lastGrindEarlyStopG)) { snprintf(b, sizeof(b), "%.1fg", snap.lastGrindEarlyStopG); }
+    else { snprintf(b, sizeof(b), "--"); }
     lv_label_set_text(s_lg_stop_pct_value, b);
 
     fmtF(b, sizeof(b), snap.lastGrindFinalWeightG, "g");      lv_label_set_text(s_lg_final_value, b);
@@ -225,7 +225,7 @@ lv_obj_t* ui_screen_debug_create(void) {
 
     create_section_label(container, "LAST GRIND");
     s_lg_stop_w_value      = create_debug_row(container, "Stop weight");
-    s_lg_stop_pct_value    = create_debug_row(container, "Stop At %");
+    s_lg_stop_pct_value    = create_debug_row(container, "Early Stop G");
     s_lg_act_coast_value   = create_debug_row(container, "Act. coast");
     s_lg_final_value       = create_debug_row(container, "Final weight");
     s_lg_pulses_value      = create_debug_row(container, "Pulses");

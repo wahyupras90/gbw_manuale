@@ -20,7 +20,7 @@ struct DebugSnapshot {
     // Last Grind Data
     float lastGrindWeightAtMotorStop;  // berat saat motor berhenti (g)
     float lastGrindActualCoast;        // berat naik setelah motor OFF (g)
-    float lastGrindStopAtPercent;      // stop percentage yang dipakai
+    float lastGrindEarlyStopG;         // early stop gram yang dipakai
     float lastGrindFinalWeightG;       // berat akhir (g)
     int   lastGrindPulseCount;         // jumlah pulse correction
 };

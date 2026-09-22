@@ -105,7 +105,7 @@ typedef struct {
     float accuracy_tolerance_g;   // default dari GRIND_ACCURACY_TOLERANCE_G, bisa diubah user
     int   max_pulse_attempts;     // default dari GRIND_MAX_PULSE_ATTEMPTS, bisa diubah user
     unsigned long settle_time_ms; // BARU -- default dari GRIND_SCALE_PRECISION_SETTLING_TIME_MS, bisa diubah user
-    float stop_at_percent;        // motor stop saat berat >= target × pct/100, range 80-95, default 88
+    float early_stop_g;           // motor stop earlyStopG_ gram sebelum target, range 0.5-10, default 2.0
     bool post_purge_enabled;      // BARU -- default false, bisa diaktifkan lewat switch di Settings
     int post_purge_pulse_count;   // BARU -- default dari GRIND_POST_PURGE_PULSE_COUNT_DEFAULT, bisa diubah user
     float stability_threshold_g;  // BARU -- threshold pre-grind stability check, default 0.3g

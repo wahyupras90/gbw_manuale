@@ -463,17 +463,17 @@ static void loadSettingsFromNVS() {
     g_ui_state.max_pulse_attempts = settingsPrefs.getInt("max_pulse", GRIND_MAX_PULSE_ATTEMPTS);
     g_ui_state.settle_time_ms = settingsPrefs.getULong("settle_ms", GRIND_SCALE_PRECISION_SETTLING_TIME_MS);
     {
-        float spct = settingsPrefs.getFloat("stop_pct", 88.0f);
-        if (!isfinite(spct) || spct < 80.0f || spct > 95.0f) spct = 88.0f;
-        g_ui_state.stop_at_percent = spct;
+        float esg = settingsPrefs.getFloat("early_stop_g", 2.0f);
+        if (!isfinite(esg) || esg < 0.5f || esg > 10.0f) esg = 2.0f;
+        g_ui_state.early_stop_g = esg;
     }
     g_ui_state.post_purge_enabled = settingsPrefs.getBool("purge_en", false);
     g_ui_state.post_purge_pulse_count = settingsPrefs.getInt("purge_cnt", GRIND_POST_PURGE_PULSE_COUNT_DEFAULT);
     g_ui_state.stability_threshold_g = settingsPrefs.getFloat("stab_thresh", 0.3f);
     settingsPrefs.end();
-    Serial.printf("[NVS] Settings dimuat -- tolerance=%.3fg max_pulses=%d settle=%lums stop_pct=%.0f%% post_purge=%s(%d)\n",
+    Serial.printf("[NVS] Settings dimuat -- tolerance=%.3fg max_pulses=%d settle=%lums early_stop=%.2fg post_purge=%s(%d)\n",
                   g_ui_state.accuracy_tolerance_g, g_ui_state.max_pulse_attempts,
-                  g_ui_state.settle_time_ms, g_ui_state.stop_at_percent,
+                  g_ui_state.settle_time_ms, g_ui_state.early_stop_g,
                   g_ui_state.post_purge_enabled ? "ON" : "OFF", g_ui_state.post_purge_pulse_count);
 }
 
@@ -491,14 +491,14 @@ extern void saveSettingsToNVS() {
     settingsPrefs.putFloat("tol_g", g_ui_state.accuracy_tolerance_g);
     settingsPrefs.putInt("max_pulse", g_ui_state.max_pulse_attempts);
     settingsPrefs.putULong("settle_ms", g_ui_state.settle_time_ms);
-    settingsPrefs.putFloat("stop_pct", g_ui_state.stop_at_percent);
+    settingsPrefs.putFloat("early_stop_g", g_ui_state.early_stop_g);
     settingsPrefs.putBool("purge_en", g_ui_state.post_purge_enabled);
     settingsPrefs.putInt("purge_cnt", g_ui_state.post_purge_pulse_count);
     settingsPrefs.putFloat("stab_thresh", g_ui_state.stability_threshold_g);
     settingsPrefs.end();
-    Serial.printf("[NVS] Settings disimpan -- tolerance=%.3fg max_pulses=%d settle=%lums stop_pct=%.0f%% post_purge=%s(%d)\n",
+    Serial.printf("[NVS] Settings disimpan -- tolerance=%.3fg max_pulses=%d settle=%lums early_stop=%.2fg post_purge=%s(%d)\n",
                   g_ui_state.accuracy_tolerance_g, g_ui_state.max_pulse_attempts,
-                  g_ui_state.settle_time_ms, g_ui_state.stop_at_percent,
+                  g_ui_state.settle_time_ms, g_ui_state.early_stop_g,
                   g_ui_state.post_purge_enabled ? "ON" : "OFF", g_ui_state.post_purge_pulse_count);
 }
 
@@ -746,7 +746,7 @@ DebugSnapshot grind_get_debug_snapshot() {
     snap.lastCheckpointMs = s_lastCpRamMs;
     snap.lastGrindWeightAtMotorStop = diagPrefs.getFloat("lg_stop_w", NAN);
     snap.lastGrindActualCoast       = diagPrefs.getFloat("lg_act_c",  NAN);
-    snap.lastGrindStopAtPercent     = diagPrefs.getFloat("lg_stop_pct", NAN);
+    snap.lastGrindEarlyStopG        = diagPrefs.getFloat("lg_early_g", NAN);
     snap.lastGrindFinalWeightG      = diagPrefs.getFloat("lg_final",  NAN);
     snap.lastGrindPulseCount        = diagPrefs.getInt("lg_pulses",   0);
     diagPrefs.end();
@@ -885,7 +885,7 @@ static void syncUiSettingsToGrindController() {
     grindController.setAccuracyToleranceG(g_ui_state.accuracy_tolerance_g);
     grindController.setMaxPulseAttempts(g_ui_state.max_pulse_attempts);
     grindController.setSettlingTimeMs(g_ui_state.settle_time_ms);  // BARU -- pola sama
-    grindController.setStopAtPercent(g_ui_state.stop_at_percent);
+    grindController.setEarlyStopG(g_ui_state.early_stop_g);
     grindController.setPostPurgeEnabled(g_ui_state.post_purge_enabled);
     grindController.setPostPurgePulseCount(g_ui_state.post_purge_pulse_count);
     grindController.setStabilityThresholdG(g_ui_state.stability_threshold_g);
@@ -977,7 +977,7 @@ static void handleGrindStateTransitionForUi() {
             diagPrefs.begin("gbwdiag", false);
             diagPrefs.putFloat("lg_stop_w", grindController.lastGrindWeightAtMotorStop());
             diagPrefs.putFloat("lg_act_c",  grindController.lastGrindActualCoast());
-            diagPrefs.putFloat("lg_stop_pct", grindController.lastGrindStopAtPercent());
+            diagPrefs.putFloat("lg_early_g",  grindController.lastGrindEarlyStopG());
             diagPrefs.putFloat("lg_final",  grindController.lastGrindFinalWeightG());
             diagPrefs.putInt("lg_pulses",   grindController.lastGrindPulseCount());
             diagPrefs.end();
@@ -1052,7 +1052,7 @@ static void handleGrindCommand(const String& line) {
         // apa yang terjadi.
         Serial.println("========================================");
         Serial.println("[GRIND STATUS -- FIXED STOP]");
-        Serial.printf("  Stop At %%                               : %.0f%%\n", grindController.stopAtPercent());
+        Serial.printf("  Early Stop G                            : %.2fg\n", grindController.earlyStopG());
         Serial.printf("  Target                                  : %.2f g\n", grindController.targetAbsoluteG());
         Serial.printf("  Current weight                          : %.2f g\n", grindController.currentWeightG());
         // finalWeightG/finalErrorG -- BARU ditambahkan (sebelumnya
@@ -1072,7 +1072,7 @@ static void handleGrindCommand(const String& line) {
         Serial.printf("  State grind sekarang: %d, result: %d, abortReason: %d\n",
                       (int)grindController.state(), (int)grindController.result(), (int)grindController.abortReason());
         Serial.println("  CATATAN: GRIND_LATENCY_TO_COAST_RATIO adalah TITIK AWAL (1.0), belum tentu akurat untuk hardware ini.");
-        Serial.println("  Tuning: ubah Stop At % di Grind Parameters, lihat Pulses di Debug screen.");
+        Serial.println("  Tuning: ubah Early Stop G di Grind Parameters, lihat Pulses di Debug screen.");
     } else if (line == "raw" || line == "RAW") {
         // Debug -- baca beberapa sample mentah HX711 langsung (blocking),
         // berguna untuk verifikasi wiring/kalibrasi tanpa perlu proses
