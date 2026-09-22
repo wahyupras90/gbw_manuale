@@ -245,8 +245,6 @@ public:
     float accuracyToleranceG() const { return accuracyToleranceG_; }
     int maxPulseAttempts() const { return maxPulseAttempts_; }
     unsigned long settlingTimeMs() const { return settlingTimeMs_; }
-    float coastRatio() const { return coastRatio_; }
-    unsigned long confirmationWindowMs() const { return confirmationWindowMs_; }
     bool postPurgeEnabled() const { return postPurgeEnabled_; }
     int postPurgePulseCount() const { return postPurgePulseCount_; }
     float stabilityThresholdG() const { return stabilityThresholdG_; }
