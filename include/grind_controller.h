@@ -229,7 +229,10 @@ public:
     // Stop At Percentage -- motor berhenti saat berat >= target × stopAtPercent_ / 100
     // Menggantikan model predictive (latency × flow × coastRatio).
     // Range 80–95%, default 88%. Sisa ditutup coast + post-purge + pulse correction.
-    void setStopAtPercent(float pct) { pendingStopAtPercent_ = pct; }
+    void setStopAtPercent(float pct) {
+        if (!isfinite(pct) || pct < 80.0f || pct > 95.0f) pct = 88.0f;
+        pendingStopAtPercent_ = pct;
+    }
     // POST_PURGE enable/pulse count
     void setPostPurgeEnabled(bool enabled) { pendingPostPurgeEnabled_ = enabled; }
     void setPostPurgePulseCount(int count) { pendingPostPurgePulseCount_ = count; }

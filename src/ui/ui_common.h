@@ -109,6 +109,7 @@ typedef struct {
     bool post_purge_enabled;      // BARU -- default false, bisa diaktifkan lewat switch di Settings
     int post_purge_pulse_count;   // BARU -- default dari GRIND_POST_PURGE_PULSE_COUNT_DEFAULT, bisa diubah user
     float stability_threshold_g;  // BARU -- threshold pre-grind stability check, default 0.3g
+    float last_coast_g;           // actual coast sesi terakhir (weightAfterSettle - weightAtMotorStop), NAN sebelum grind pertama
 } ui_shared_state_t;
 
 extern ui_shared_state_t g_ui_state;

@@ -53,6 +53,8 @@ ui_shared_state_t g_ui_state = {
     .stop_at_percent = 88.0f,
     .post_purge_enabled = false,
     .post_purge_pulse_count = GRIND_POST_PURGE_PULSE_COUNT_DEFAULT,
+    .stability_threshold_g = 0.3f,
+    .last_coast_g = NAN,
 };
 
 static ui_screen_id_t s_current_screen = UI_SCREEN_IDLE;

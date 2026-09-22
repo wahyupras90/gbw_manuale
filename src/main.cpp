@@ -462,7 +462,11 @@ static void loadSettingsFromNVS() {
     g_ui_state.accuracy_tolerance_g = settingsPrefs.getFloat("tol_g", GRIND_ACCURACY_TOLERANCE_G);
     g_ui_state.max_pulse_attempts = settingsPrefs.getInt("max_pulse", GRIND_MAX_PULSE_ATTEMPTS);
     g_ui_state.settle_time_ms = settingsPrefs.getULong("settle_ms", GRIND_SCALE_PRECISION_SETTLING_TIME_MS);
-    g_ui_state.stop_at_percent = settingsPrefs.getFloat("stop_pct", 88.0f);
+    {
+        float spct = settingsPrefs.getFloat("stop_pct", 88.0f);
+        if (!isfinite(spct) || spct < 80.0f || spct > 95.0f) spct = 88.0f;
+        g_ui_state.stop_at_percent = spct;
+    }
     g_ui_state.post_purge_enabled = settingsPrefs.getBool("purge_en", false);
     g_ui_state.post_purge_pulse_count = settingsPrefs.getInt("purge_cnt", GRIND_POST_PURGE_PULSE_COUNT_DEFAULT);
     g_ui_state.stability_threshold_g = settingsPrefs.getFloat("stab_thresh", 0.3f);
@@ -610,7 +614,6 @@ bool grind_start(float target_g) {
     // bawah ini akan tetap menolak lewat jalur hasSample() yang sudah
     // ada (lihat grind_controller.cpp), TIDAK ada perilaku baru yang
     // diam-diam menganggap sistem siap padahal belum dikalibrasi.
-    saveCheckpoint("grind_start");
     return grindController.startGrind(target_g);
 }
 
@@ -978,6 +981,8 @@ static void handleGrindStateTransitionForUi() {
             diagPrefs.putFloat("lg_final",  grindController.lastGrindFinalWeightG());
             diagPrefs.putInt("lg_pulses",   grindController.lastGrindPulseCount());
             diagPrefs.end();
+            // Sinkron ke UIState untuk tampil di Done screen (COAST G)
+            g_ui_state.last_coast_g = grindController.lastGrindActualCoast();
         }
         // FIX BUG (ditemukan lewat testing sistematis, dilaporkan
         // sebagai "pencet Start langsung lompat ke Finish Grind" saat

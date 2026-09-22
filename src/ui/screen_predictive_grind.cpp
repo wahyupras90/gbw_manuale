@@ -175,27 +175,12 @@ void ui_screen_predictive_grind_update(void) {
     lv_label_set_text(s_target_sublabel, buf);
 
     // ------------------------------------------------------------
-    // WAIT_FLOW_START vs GRINDING -- per keputusan: TIDAK ADA screen
-    // terpisah, cukup ring diam di 0% dan phase pill beda label,
-    // sampai g_ui_state.flow_start_confirmed true (di-set main.cpp
-    // dari GrindController::flowStartConfirmed()).
+    // Fixed stop: tidak ada WAIT_FLOW_START lagi. Sejak motor ON,
+    // langsung tampilkan GRINDING + progress ring.
+    // (field flow_start_confirmed dihapus dari logika ini -- v1.0.36)
     // ------------------------------------------------------------
-    if (!g_ui_state.flow_start_confirmed) {
-        lv_arc_set_value(s_arc, 0);
-        ui_set_phase_label(s_phase_pill, "DETECTING FLOW", COLOR_ACCENT, lv_color_hex(0x2a2412));
-        lv_label_set_text(lv_obj_get_child(s_flow_stat, 0), "--");
-        lv_label_set_text(lv_obj_get_child(s_latency_stat, 0), "--");
-    } else {
-        // Ring progress = dose SUDAH TERCAPAI / dose TOTAL yang
-        // diminta, BUKAN current_weight_g / target_weight_g (BUG
-        // LAMA -- itu salah kalau berat awal timbangan bukan 0, mis.
-        // portafilter yang sudah ditara tetap punya berat > 0 di
-        // pembacaan mentah timbangan sebelum tare berlaku, ATAU kalau
-        // target_weight_g adalah dose bukan berat absolut. Progress
-        // yang benar: seberapa jauh KENAIKAN berat dari titik mulai
-        // (start_weight_g) menuju total kenaikan yang diminta
-        // (target_absolute_g - start_weight_g), yang secara matematis
-        // sama dengan dose yang sudah masuk / dose total diminta.
+    {
+        // Ring progress = dose sudah tercapai / dose total diminta
         float doseTotal = g_ui_state.target_absolute_g - g_ui_state.start_weight_g;
         float doseSoFar = g_ui_state.current_weight_g - g_ui_state.start_weight_g;
         int pct = (doseTotal > 0.0f) ? (int)((doseSoFar / doseTotal) * 100.0f) : 0;

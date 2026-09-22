@@ -434,8 +434,12 @@ void GrindController::onWeightSample(float rawWeightG, unsigned long sampleTimes
             break;
         }
         case GrindState::GRINDING: {
-            // Fixed stop percentage -- motor berhenti saat berat >= target × stopAtPercent_ / 100
-            float stopThreshold = targetAbsoluteG_ * stopAtPercent_ / 100.0f;
+            // Fixed stop percentage -- motor berhenti saat berat >=
+            // startWeight + (dose * stopAtPercent_ / 100).
+            // BENAR: persentase dari DOSE (kopi yang ingin ditambahkan),
+            // BUKAN dari berat absolut targetAbsoluteG_ yang menyertakan
+            // berat portafilter/wadah (bug P0 v1.0.35).
+            float stopThreshold = startWeightG_ + (targetDoseG_ * stopAtPercent_ / 100.0f);
 
             // Rekam flow ke history untuk P95 pulse correction
             FlowRateResult flow = weightFilter_->computeFlowRate();
