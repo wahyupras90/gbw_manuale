@@ -38,11 +38,11 @@ static lv_obj_t* s_touch_recovery_value = nullptr;
 static lv_obj_t* s_last_checkpoint_value = nullptr;
 
 // LAST GRIND section
-static lv_obj_t* s_lg_stop_w_value = nullptr;
-static lv_obj_t* s_lg_stop_pct_value  = nullptr;static lv_obj_t* s_lg_act_coast_value = nullptr;
+static lv_obj_t* s_lg_stop_w_value    = nullptr;
+static lv_obj_t* s_lg_stop_pct_value  = nullptr;
 static lv_obj_t* s_lg_act_coast_value = nullptr;
-static lv_obj_t* s_lg_final_value = nullptr;
-static lv_obj_t* s_lg_pulses_value = nullptr;
+static lv_obj_t* s_lg_final_value     = nullptr;
+static lv_obj_t* s_lg_pulses_value    = nullptr;
 
 static unsigned long s_lastRefreshMs = 0;
 #define DEBUG_REFRESH_INTERVAL_MS 300  // disepakati eksplisit -- lihat catatan header file ini

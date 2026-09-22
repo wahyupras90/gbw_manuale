@@ -254,10 +254,8 @@ public:
     // Last grind data -- dibaca main.cpp untuk disimpan ke NVS dan
     // ditampilkan di Debug screen section LAST GRIND.
     float lastGrindWeightAtMotorStop() const { return lastGrindWeightAtMotorStop_; }
-    float lastGrindPredictedCoast() const { return lastGrindPredictedCoast_; }
     float lastGrindActualCoast() const { return lastGrindActualCoast_; }
-    float lastGrindCoastRatioUsed() const { return lastGrindCoastRatioUsed_; }
-    unsigned long lastGrindLatencyMs() const { return lastGrindLatencyMs_; }
+    float lastGrindStopAtPercent() const { return lastGrindStopAtPercent_; }
     float lastGrindFinalWeightG() const { return lastGrindFinalWeightG_; }
     int lastGrindPulseCount() const { return lastGrindPulseCount_; }
 
@@ -324,92 +322,45 @@ private:
     float startWeightG_;
     float finalWeightG_;
 
-    unsigned long grindStartMs_;      // timestamp startGrind() dipanggil -- basis MAX_DURATION & durasi laporan
-    unsigned long motorStartedMs_;    // timestamp motor ON dikonfirmasi -- basis grace period stall & basis grind_latency_ms
-    unsigned long motorStoppedMs_;    // timestamp motor OFF dikonfirmasi -- basis settle timer (WAIT_SETTLE/pasca-pulse)
-    unsigned long lastFlowAboveThresholdMs_;  // basis reset timer stall
+    unsigned long grindStartMs_;
+    unsigned long motorStartedMs_;
+    unsigned long motorStoppedMs_;
 
-    // --- Model real-time (VERSI 2) ---
-    // Confirmation window flow-start (fix per review): candidate
-    // dicatat begitu SATU sample >= threshold terlihat pertama kali
-    // sejak motor ON/sejak reset terakhir. flowStartConfirmed_ baru
-    // true kalau flow TETAP >= threshold sampai
-    // (candidateFlowStartMs_ + GRIND_LATENCY_CONFIRMATION_MS) tercapai
-    // TANPA ada sample di bawah threshold di antaranya -- kalau ada
-    // sample di bawah threshold sebelum window selesai,
-    // candidateFlowStartMs_ di-reset (unsigned long 0 dipakai sebagai
-    // "tidak ada candidate aktif").
-    unsigned long candidateFlowStartMs_;
-    bool flowStartConfirmed_;              // sudah terkonfirmasi PENUH (window 500ms terpenuhi tanpa putus)?
-    unsigned long grindLatencyMs_;         // T_onset: motorStartedMs_ -> candidateFlowStartMs_ yang BERHASIL dikonfirmasi
-    float motorStopTargetWeightG_;         // hasil hitung flow_now * coast_time -- HANYA valid & dipakai setelah flowStartConfirmed_ (lihat evaluateGrindProgress())
-    float sessionPulseFlowGps_;            // P95 flow SESI INI (window GRIND_PULSE_P95_WINDOW_MS sebelum predictive stop), dihitung sekali, dipakai semua pulsa
+    float sessionPulseFlowGps_;
 
     int pulseAttempts_;
     float lastMotorRttMs_;
 
-    // --- Parameter yang bisa dikonfigurasi dari UI Settings ---
-    // accuracyToleranceG_/maxPulseAttempts_: nilai EFEKTIF yang
-    // dipakai algoritma (diinisialisasi dari config.h di konstruktor,
-    // di-snapshot ulang dari pending*_ di setiap startGrind()).
-    // pendingAccuracyToleranceG_/pendingMaxPulseAttempts_: nilai yang
-    // ditulis lewat setter (mis. dari UI Settings) tapi BELUM
-    // di-snapshot ke sesi aktif -- lihat komentar setter di atas untuk
-    // alasan snapshot-at-start ini.
     float accuracyToleranceG_;
     int maxPulseAttempts_;
     float pendingAccuracyToleranceG_;
     int pendingMaxPulseAttempts_;
-    // BARU -- settlingTimeMs_/pendingSettlingTimeMs_, pola SAMA PERSIS
-    // dengan accuracyToleranceG_/maxPulseAttempts_ di atas. Dipakai di
-    // 2 tempat: WAIT_SETTLE (setelah predictive-stop) dan settle antar
-    // pulsa di evaluatePulseProgress() -- lihat grind_controller.cpp.
     unsigned long settlingTimeMs_;
     unsigned long pendingSettlingTimeMs_;
-    // BARU -- coastRatio_/pendingCoastRatio_, pola SAMA PERSIS. Dipakai
-    // di evaluateFlowStartConfirmation() (inisialisasi awal
-    // motorStopTargetWeightG_) DAN evaluateGrindProgress() (update
-    // real-time tiap sample) -- lihat grind_controller.cpp.
-    float coastRatio_;
-    float pendingCoastRatio_;
-    // BARU -- confirmationWindowMs_/pendingConfirmationWindowMs_, pola
-    // sama. Dipakai di evaluateFlowStartConfirmation() (lihat
-    // grind_controller.cpp).
-    unsigned long confirmationWindowMs_;
-    unsigned long pendingConfirmationWindowMs_;
-    // BARU -- postPurgeEnabled_/postPurgePulseCount_, pola sama
-    // (snapshot-at-startGrind). postPurgePulsesRemaining_ BUKAN
-    // setting -- ini counter RUNTIME (di-reset tiap kali masuk
-    // POST_PURGE, dikurangi tiap pulsa selesai, lihat
-    // grind_controller.cpp).
+    float stopAtPercent_;
+    float pendingStopAtPercent_;
     bool postPurgeEnabled_;
     bool pendingPostPurgeEnabled_;
     int postPurgePulseCount_;
     int pendingPostPurgePulseCount_;
     int postPurgePulsesRemaining_;
-    unsigned long purgeMotorOnMs_;   // timestamp motor ON purge -- untuk non-blocking pulse duration
-    unsigned long pulseMotorOnMs_;   // timestamp motor ON pulse correction -- untuk non-blocking
-    unsigned long pulseDurationMs_;  // durasi pulse yang sedang berjalan (bervariasi per pulse)
+    unsigned long purgeMotorOnMs_;
+    unsigned long pulseMotorOnMs_;
+    unsigned long pulseDurationMs_;
 
-    // WAIT_STABLE -- pre-grind stability check
     float stabilityThresholdG_;
     float pendingStabilityThresholdG_;
-    unsigned long waitStableStartMs_;   // kapan WAIT_STABLE dimulai (untuk timeout)
-    unsigned long waitStableOkSinceMs_; // kapan variasi berat mulai masuk threshold (untuk durasi 500ms)
-    float waitStableLastWeight_;        // berat sample sebelumnya untuk hitung variasi
+    unsigned long waitStableStartMs_;
+    unsigned long waitStableOkSinceMs_;
+    float waitStableLastWeight_;
 
-    // LAST GRIND DATA -- disimpan di finishAsComplete(), dibaca Debug screen
-    // Semua float/ulong, disimpan ke NVS "gbwdiag" setelah grind selesai.
-    float predictiveStopWeightG_;         // berat aktual dari weightFilter_ TEPAT saat predictive stop -- TIDAK ditimpa pulse/purge
-    float weightAfterPredictiveSettle_;   // berat setelah settling selesai, SEBELUM post-purge/pulse -- untuk actualCoast murni
+    float weightAtMotorStop_;
+    float weightAfterSettle_;
     float lastGrindWeightAtMotorStop_;
-    float lastGrindPredictedCoast_;       // = motorStopTargetWeightG_ saat predictive stop
-    float lastGrindActualCoast_;          // = weightAfterPredictiveSettle_ - predictiveStopWeightG_ (natural coast murni)
-    float lastGrindCoastRatioUsed_;
-    unsigned long lastGrindLatencyMs_;
+    float lastGrindActualCoast_;
+    float lastGrindStopAtPercent_;
     float lastGrindFinalWeightG_;
     int lastGrindPulseCount_;
-
     void transitionTo(GrindState newState);
     void startMotorAndBeginGrind();
     void doAbort(AbortReason reason);

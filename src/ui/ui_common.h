@@ -84,9 +84,8 @@ typedef struct {
     float start_weight_g;
 
     float current_weight_g;
-    float flow_rate_gps;        // flow_now real-time, NAN kalau belum valid (lihat GrindController::currentFlowGps())
+    float flow_rate_gps;
     bool  flow_start_confirmed;
-    float stop_at_percent;        // menggantikan coast_ratio -- motor stop saat berat >= target × pct/100
     int   pulse_count;
     float pulse_error_g;
     unsigned long grind_duration_ms;
