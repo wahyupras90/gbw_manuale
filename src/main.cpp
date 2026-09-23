@@ -744,11 +744,13 @@ DebugSnapshot grind_get_debug_snapshot() {
     diagPrefs.begin("gbwdiag", true);
     snap.lastCheckpoint = String(s_lastCpRam);
     snap.lastCheckpointMs = s_lastCpRamMs;
-    snap.lastGrindWeightAtMotorStop = diagPrefs.getFloat("lg_stop_w", NAN);
-    snap.lastGrindActualCoast       = diagPrefs.getFloat("lg_act_c",  NAN);
-    snap.lastGrindEarlyStopG        = diagPrefs.getFloat("lg_early_g", NAN);
-    snap.lastGrindFinalWeightG      = diagPrefs.getFloat("lg_final",  NAN);
-    snap.lastGrindPulseCount        = diagPrefs.getInt("lg_pulses",   0);
+    snap.lastGrindWeightAtMotorStop       = diagPrefs.getFloat("lg_stop_w", NAN);
+    snap.lastGrindActualCoast             = diagPrefs.getFloat("lg_act_c",  NAN);
+    snap.lastGrindEarlyStopG             = diagPrefs.getFloat("lg_early_g", NAN);
+    snap.lastGrindWeightAtMotorOff100ms  = grindController.lastGrindWeightAtMotorOff100ms();
+    snap.lastGrindWeightAtMotorOff300ms  = grindController.lastGrindWeightAtMotorOff300ms();
+    snap.lastGrindFinalWeightG           = diagPrefs.getFloat("lg_final",  NAN);
+    snap.lastGrindPulseCount             = diagPrefs.getInt("lg_pulses",   0);
     diagPrefs.end();
 
     return snap;

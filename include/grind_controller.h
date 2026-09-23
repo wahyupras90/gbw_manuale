@@ -256,6 +256,8 @@ public:
     // ditampilkan di Debug screen section LAST GRIND.
     float lastGrindWeightAtMotorStop() const { return lastGrindWeightAtMotorStop_; }
     float lastGrindActualCoast() const { return lastGrindActualCoast_; }
+    float lastGrindWeightAtMotorOff100ms() const { return lastGrindWeightAtMotorOff100ms_; }
+    float lastGrindWeightAtMotorOff300ms() const { return lastGrindWeightAtMotorOff300ms_; }
     float lastGrindEarlyStopG() const { return lastGrindEarlyStopG_; }
     float lastGrindFinalWeightG() const { return lastGrindFinalWeightG_; }
     int lastGrindPulseCount() const { return lastGrindPulseCount_; }
@@ -357,8 +359,12 @@ private:
 
     float weightAtMotorStop_;
     float weightAfterSettle_;
+    float weightAtMotorOff100ms_;   // berat +100ms setelah relay OFF (in-memory, tidak persist NVS)
+    float weightAtMotorOff300ms_;   // berat +300ms setelah relay OFF (in-memory, tidak persist NVS)
     float lastGrindWeightAtMotorStop_;
     float lastGrindActualCoast_;
+    float lastGrindWeightAtMotorOff100ms_;  // in-memory only, reset NAN saat boot
+    float lastGrindWeightAtMotorOff300ms_;  // in-memory only, reset NAN saat boot
     float lastGrindEarlyStopG_;
     float lastGrindFinalWeightG_;
     int lastGrindPulseCount_;

@@ -356,7 +356,7 @@ static const float HX711_CALIBRATION_SCALE_CORRECTED = HX711_CALIBRATION_SCALE_F
 // GRIND_MAX_PULSE_DURATION_MS di bawah adalah SATU-SATUNYA sumber
 // kebenaran untuk batas durasi pulsa.)
 #define GRIND_MIN_PULSE_DURATION_MS    30.0f
-#define GRIND_MAX_PULSE_DURATION_MS    250.0f
+#define GRIND_MAX_PULSE_DURATION_MS    100.0f
 #define GRIND_PULSE_P95_WINDOW_MS      2500UL   // window pengumpulan sample untuk hitung P95 flow sesi, persis meniru upstream
 
 // ------------------------------------------------------------

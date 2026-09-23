@@ -108,7 +108,9 @@ GrindController::GrindController(WeightFilter* weightFilter, MotorController* mo
       stabilityThresholdG_(0.3f), pendingStabilityThresholdG_(0.3f),
       waitStableStartMs_(0), waitStableOkSinceMs_(0), waitStableLastWeight_(NAN),
       weightAtMotorStop_(NAN), weightAfterSettle_(NAN),
+      weightAtMotorOff100ms_(NAN), weightAtMotorOff300ms_(NAN),
       lastGrindWeightAtMotorStop_(NAN), lastGrindActualCoast_(NAN),
+      lastGrindWeightAtMotorOff100ms_(NAN), lastGrindWeightAtMotorOff300ms_(NAN),
       lastGrindEarlyStopG_(NAN), lastGrindFinalWeightG_(NAN), lastGrindPulseCount_(0) {}
 
 // ------------------------------------------------------------
@@ -252,8 +254,10 @@ bool GrindController::startGrind(float targetDoseG) {
     waitStableOkSinceMs_ = 0;
     waitStableLastWeight_ = NAN;
 
-    weightAtMotorStop_ = NAN;
-    weightAfterSettle_ = NAN;
+    weightAtMotorStop_      = NAN;
+    weightAfterSettle_      = NAN;
+    weightAtMotorOff100ms_  = NAN;
+    weightAtMotorOff300ms_  = NAN;
 
     resetFlowHistory();
     sessionPulseFlowGps_ = NAN;
@@ -461,16 +465,28 @@ void GrindController::onWeightSample(float rawWeightG, unsigned long sampleTimes
             break;
         }
         case GrindState::WAIT_SETTLE: {
-            if (millis() - motorStoppedMs_ < settlingTimeMs_) {
+            unsigned long elapsed = millis() - motorStoppedMs_;
+
+            // Capture +100ms setelah motor OFF (in-memory, tidak persist NVS)
+            if (isnan(weightAtMotorOff100ms_) && elapsed >= 100) {
+                weightAtMotorOff100ms_ = weightFilter_ ? weightFilter_->latestWeight() : NAN;
+            }
+            // Capture +300ms setelah motor OFF (in-memory, tidak persist NVS)
+            if (isnan(weightAtMotorOff300ms_) && elapsed >= 300) {
+                weightAtMotorOff300ms_ = weightFilter_ ? weightFilter_->latestWeight() : NAN;
+            }
+
+            if (elapsed < settlingTimeMs_) {
                 break;
             }
 
-            // Capture berat setelah settling, sebelum post-purge.
-            // weightAtMotorStop_ di-capture di sini (bukan saat relay OFF)
-            // karena motor masih berputar saat relay diklik -- pembacaan
-            // stabil baru tersedia setelah settlingTimeMs_ lewat.
+            // Capture berat setelah full settling (weightAfterSettle_).
+            // weightAtMotorStop_ = weightAfterSettle_ karena tidak ada
+            // cara akurat mengukur berat tepat saat relay OFF
+            // (motor masih bergetar). Ini trade-off: coast selalu 0,
+            // tapi baseline pulse correction benar.
             weightAfterSettle_  = weightFilter_ ? weightFilter_->latestWeight() : NAN;
-            weightAtMotorStop_  = weightAfterSettle_;  // diagnostik: berat stabil pertama setelah motor OFF
+            weightAtMotorStop_  = weightAfterSettle_;
 
             if (postPurgeEnabled_ && postPurgePulsesRemaining_ == 0) {
                 Serial.printf("[GRIND] Settle selesai -- mulai POST_PURGE (%d pulsa).\n", postPurgePulseCount_);
@@ -518,23 +534,18 @@ void GrindController::startPulse(unsigned long nowMs) {
         return;
     }
 
-    float estimatedFlow = !isnan(sessionPulseFlowGps_) ? sessionPulseFlowGps_ : GRIND_PULSE_FLOW_RATE_FALLBACK_GPS;
-    if (isnan(sessionPulseFlowGps_)) {
-        Serial.println("[GRIND] Pulse -- P95 sesi tidak tersedia, pakai fallback ESTIMASI (bukan hasil pengukuran).");
-    }
-    if (estimatedFlow < GRIND_FLOW_RATE_MIN_SANE_GPS) {
-        estimatedFlow = GRIND_PULSE_FLOW_RATE_FALLBACK_GPS;
-    } else if (estimatedFlow > GRIND_FLOW_RATE_MAX_SANE_GPS) {
-        estimatedFlow = GRIND_FLOW_RATE_MAX_SANE_GPS;
-    }
-
-    float durationMs = (errorG / estimatedFlow) * 1000.0f;
-    if (durationMs < GRIND_MIN_PULSE_DURATION_MS) durationMs = GRIND_MIN_PULSE_DURATION_MS;
-    if (durationMs > GRIND_MAX_PULSE_DURATION_MS) durationMs = GRIND_MAX_PULSE_DURATION_MS;
+    // Stepped pulse duration berdasarkan error aktual.
+    // Lebih prediktif dari P95 flow untuk pulse correction karena
+    // flow saat pulse (motor start dari diam) berbeda dari flow saat grinding.
+    // Setelah tiap pulse, berat diukur ulang dan error dihitung ulang.
+    unsigned long durationMs;
+    if (errorG > 0.5f)      durationMs = 100;
+    else if (errorG > 0.3f) durationMs =  60;
+    else                    durationMs =  40;
 
     pulseAttempts_++;
-    Serial.printf("[GRIND] Pulse #%d/%d -- error=%.3fg P95_flow=%.2fgps duration=%.0fms\n",
-                  pulseAttempts_, maxPulseAttempts_, errorG, estimatedFlow, durationMs);
+    Serial.printf("[GRIND] Pulse #%d/%d -- error=%.3fg duration=%lums (stepped)\n",
+                  pulseAttempts_, maxPulseAttempts_, errorG, durationMs);
 
     saveCheckpoint("pulse_motor_on");
     MotorResult onResult = motor_->start();
@@ -733,6 +744,8 @@ void GrindController::finishAsComplete() {
     lastGrindActualCoast_       = (isnan(weightAtMotorStop_) || isnan(weightAfterSettle_))
                                   ? NAN
                                   : weightAfterSettle_ - weightAtMotorStop_;
+    lastGrindWeightAtMotorOff100ms_ = weightAtMotorOff100ms_;
+    lastGrindWeightAtMotorOff300ms_ = weightAtMotorOff300ms_;
     lastGrindEarlyStopG_        = earlyStopG_;
     lastGrindFinalWeightG_      = finalWeightG_;
     lastGrindPulseCount_        = pulseAttempts_;
