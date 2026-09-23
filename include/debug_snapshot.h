@@ -19,7 +19,6 @@ struct DebugSnapshot {
 
     // Last Grind Data
     float lastGrindWeightAtMotorStop;  // berat saat motor berhenti (g)
-    float lastGrindActualCoast;        // berat naik setelah motor OFF (g)
     float lastGrindEarlyStopG;         // early stop gram yang dipakai
     float lastGrindWeightAtMotorOff100ms;  // berat +100ms setelah relay OFF (in-memory)
     float lastGrindWeightAtMotorOff300ms;  // berat +300ms setelah relay OFF (in-memory)

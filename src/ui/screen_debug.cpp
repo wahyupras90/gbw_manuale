@@ -40,7 +40,6 @@ static lv_obj_t* s_last_checkpoint_value = nullptr;
 // LAST GRIND section
 static lv_obj_t* s_lg_stop_w_value    = nullptr;
 static lv_obj_t* s_lg_stop_pct_value  = nullptr;
-static lv_obj_t* s_lg_act_coast_value = nullptr;
 static lv_obj_t* s_lg_off_100ms_value = nullptr;  // Motor OFF +100ms
 static lv_obj_t* s_lg_off_300ms_value = nullptr;  // Motor OFF +300ms
 static lv_obj_t* s_lg_after_settle_value = nullptr;  // After Settle
@@ -166,8 +165,6 @@ void ui_screen_debug_update(void) {
     };
     char b[24];
     fmtF(b, sizeof(b), snap.lastGrindWeightAtMotorStop, "g"); lv_label_set_text(s_lg_stop_w_value, b);
-    fmtF(b, sizeof(b), snap.lastGrindActualCoast, "g");       lv_label_set_text(s_lg_act_coast_value, b);
-    lv_obj_set_style_text_color(s_lg_act_coast_value, COLOR_TEXT_PRIMARY, 0);
 
     // Coast multi-titik (in-memory, NAN sebelum grind pertama atau setelah restart)
     fmtF(b, sizeof(b), snap.lastGrindWeightAtMotorOff100ms, "g"); lv_label_set_text(s_lg_off_100ms_value, b);
@@ -195,7 +192,7 @@ lv_obj_t* ui_screen_debug_create(void) {
     lv_obj_t* title = lv_label_create(s_screen);
     lv_label_set_text(title, "DEBUG");
     lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(title, COLOR_ACCENT, 0);
+    lv_obj_set_style_text_color(title, COLOR_TEXT_PRIMARY, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, STATUS_BAR_HEIGHT + 14);
 
     // Container rows -- dihitung eksplisit: 2 section label (14px
@@ -234,7 +231,6 @@ lv_obj_t* ui_screen_debug_create(void) {
     create_section_label(container, "LAST GRIND");
     s_lg_stop_w_value        = create_debug_row(container, "Stop weight");
     s_lg_stop_pct_value      = create_debug_row(container, "Early Stop G");
-    s_lg_act_coast_value     = create_debug_row(container, "Act. coast");
     s_lg_off_100ms_value     = create_debug_row(container, "Motor OFF +100ms");
     s_lg_off_300ms_value     = create_debug_row(container, "Motor OFF +300ms");
     s_lg_after_settle_value  = create_debug_row(container, "After Settle");

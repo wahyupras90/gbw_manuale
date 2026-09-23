@@ -27,7 +27,7 @@ GrindController::GrindController(WeightFilter* weightFilter, MotorController* mo
       waitStableStartMs_(0), waitStableOkSinceMs_(0), waitStableLastWeight_(NAN),
       weightAtMotorStop_(NAN), weightAfterSettle_(NAN),
       weightAtMotorOff100ms_(NAN), weightAtMotorOff300ms_(NAN),
-      lastGrindWeightAtMotorStop_(NAN), lastGrindActualCoast_(NAN),
+      lastGrindWeightAtMotorStop_(NAN),
       lastGrindWeightAtMotorOff100ms_(NAN), lastGrindWeightAtMotorOff300ms_(NAN),
       lastGrindEarlyStopG_(NAN), lastGrindFinalWeightG_(NAN), lastGrindPulseCount_(0) {}
 
@@ -649,9 +649,6 @@ void GrindController::finishAsComplete() {
 
     // Last Grind Data
     lastGrindWeightAtMotorStop_ = weightAtMotorStop_;
-    lastGrindActualCoast_       = (isnan(weightAtMotorStop_) || isnan(weightAfterSettle_))
-                                  ? NAN
-                                  : weightAfterSettle_ - weightAtMotorStop_;
     lastGrindWeightAtMotorOff100ms_ = weightAtMotorOff100ms_;
     lastGrindWeightAtMotorOff300ms_ = weightAtMotorOff300ms_;
     lastGrindEarlyStopG_        = earlyStopG_;

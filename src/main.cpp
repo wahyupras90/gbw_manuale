@@ -745,7 +745,6 @@ DebugSnapshot grind_get_debug_snapshot() {
     snap.lastCheckpoint = String(s_lastCpRam);
     snap.lastCheckpointMs = s_lastCpRamMs;
     snap.lastGrindWeightAtMotorStop       = diagPrefs.getFloat("lg_stop_w", NAN);
-    snap.lastGrindActualCoast             = diagPrefs.getFloat("lg_act_c",  NAN);
     snap.lastGrindEarlyStopG             = diagPrefs.getFloat("lg_early_g", NAN);
     snap.lastGrindWeightAtMotorOff100ms  = grindController.lastGrindWeightAtMotorOff100ms();
     snap.lastGrindWeightAtMotorOff300ms  = grindController.lastGrindWeightAtMotorOff300ms();
@@ -978,13 +977,12 @@ static void handleGrindStateTransitionForUi() {
         if (now == GrindState::COMPLETE) {
             diagPrefs.begin("gbwdiag", false);
             diagPrefs.putFloat("lg_stop_w", grindController.lastGrindWeightAtMotorStop());
-            diagPrefs.putFloat("lg_act_c",  grindController.lastGrindActualCoast());
             diagPrefs.putFloat("lg_early_g",  grindController.lastGrindEarlyStopG());
             diagPrefs.putFloat("lg_final",  grindController.lastGrindFinalWeightG());
             diagPrefs.putInt("lg_pulses",   grindController.lastGrindPulseCount());
             diagPrefs.end();
             // Sinkron ke UIState untuk tampil di Done screen (COAST G)
-            g_ui_state.last_coast_g = grindController.lastGrindActualCoast();
+            // last_coast_g dihapus -- Act. coast tidak lagi ditampilkan
         }
         // FIX BUG (ditemukan lewat testing sistematis, dilaporkan
         // sebagai "pencet Start langsung lompat ke Finish Grind" saat

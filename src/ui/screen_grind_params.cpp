@@ -338,8 +338,8 @@ lv_obj_t* ui_screen_grind_params_create(void) {
 
     lv_obj_t* title = lv_label_create(s_screen);
     lv_label_set_text(title, "GRIND PARAMETERS");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(title, COLOR_ACCENT, 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(title, COLOR_TEXT_PRIMARY, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, STATUS_BAR_HEIGHT + 18);
 
     // Scroll area -- sama persis dengan pola Settings lama
