@@ -340,24 +340,17 @@ static const float HX711_CALIBRATION_SCALE_CORRECTED = HX711_CALIBRATION_SCALE_F
 // abnormal (sensor error, pulse runaway, dst) -- bukan target akurasi.
 #define GRIND_HARD_OVERSHOOT_G         2.0f
 
-// Pulse correction -- durasi dihitung proporsional (error/flow),
-// diclamp ke rentang ini (MIN/MAX di bawah). Flow untuk pulsa pakai
-// P95 SESI INI (dihitung sekali setelah predictive stop, bukan
-// flow_now real-time per pulsa -- keputusan final setelah bandingkan
-// dengan upstream: sisa berat kecil + durasi pulsa pendek membuat
-// flow_now terlalu rentan noise/sample sedikit untuk jadi estimator
-// pulsa).
-// (BUG DITEMUKAN & DIHAPUS lewat audit config: sempat ada konstanta
-// duplikat mati "GRIND_MOTOR_MAX_PULSE_DURATION_MS = 250.0f" di sini,
-// nilainya sama persis dengan GRIND_MAX_PULSE_DURATION_MS di bawah
-// tapi TIDAK PERNAH dipakai di kode manapun -- cuma disebut di
-// komentar. Risiko nyata: kalau salah satu diubah tanpa yang lain,
-// terjadi inkonsistensi diam-diam. Konstanta mati itu sudah dihapus,
-// GRIND_MAX_PULSE_DURATION_MS di bawah adalah SATU-SATUNYA sumber
-// kebenaran untuk batas durasi pulsa.)
+// Pulse correction -- stepped fixed duration berdasarkan error aktual
+// (P95 flow dihapus sejak v1.0.42: flow saat pulse tidak identik
+// dengan flow saat grinding normal karena burr mulai dari diam).
+// Feedback berat aktual setelah tiap pulse lebih andal dari prediksi.
+//   error > 0.5g  → 100ms
+//   error > 0.3g  → 60ms
+//   error ≤ 0.3g  → 40ms
+// GRIND_MIN_PULSE_DURATION_MS masih dipakai sebagai safety floor.
+// GRIND_MAX_PULSE_DURATION_MS = 100ms (turun dari 250ms).
 #define GRIND_MIN_PULSE_DURATION_MS    30.0f
 #define GRIND_MAX_PULSE_DURATION_MS    100.0f
-#define GRIND_PULSE_P95_WINDOW_MS      2500UL   // window pengumpulan sample untuk hitung P95 flow sesi, persis meniru upstream
 
 // ------------------------------------------------------------
 // POST_PURGE -- BARU, disepakati eksplisit setelah observasi: sisa

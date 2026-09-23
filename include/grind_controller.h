@@ -104,18 +104,10 @@
 // bersama, TAPI computeRegressionStatus()/regresi lama TIDAK ADA LAGI
 // dan TIDAK dipanggil dari jalur keputusan mana pun.
 //
-// PULSE CORRECTION -- flow P95 SESI INI (bukan flow_now real-time per
-// pulsa, BEDA dari predictive stop di atas). Alasan (dari perbandingan
-// eksplisit dengan upstream): sisa berat kecil + durasi pulsa pendek
-// membuat estimasi flow_now sangat rentan noise/jumlah sample
-// sedikit. P95 dihitung SEKALI, tepat setelah predictive stop, dari
-// sample flow yang PALING BARU dalam window GRIND_PULSE_P95_WINDOW_MS
-// (2500ms) SEBELUM predictive stop terjadi (per review, FIX dari
-// implementasi awal yang salah pakai SELURUH histori sesi tanpa batas
-// window -- itu membuat konstanta GRIND_PULSE_P95_WINDOW_MS tidak
-// benar-benar berfungsi). Filtering window ini pakai TIMESTAMP sample
-// (bukan sekadar menyimpan nilai float tanpa waktu) -- lihat
-// implementasi pushFlowSample()/computeSessionP95() di .cpp.
+// PULSE CORRECTION -- stepped fixed duration berdasarkan error aktual
+// (P95 flow dihapus sejak v1.0.42 karena flow saat pulse berbeda dari
+// flow saat grinding -- feedback berat aktual setelah tiap pulse lebih
+// andal): error >0.5g=100ms, >0.3g=60ms, ≤0.3g=40ms.
 //
 // SEMUA KONSTANTA REGRESI LAMA (GRIND_MIN_CALIBRATION_TRIALS,
 // GRIND_MIN_REGRESSION_R2, GRIND_MIN_FLOW_RANGE_GPS,
@@ -329,7 +321,7 @@ private:
     unsigned long motorStartedMs_;
     unsigned long motorStoppedMs_;
 
-    float sessionPulseFlowGps_;
+    // (sessionPulseFlowGps_ dihapus -- pulse correction pakai stepped duration, tidak butuh P95)
 
     int pulseAttempts_;
     float lastMotorRttMs_;

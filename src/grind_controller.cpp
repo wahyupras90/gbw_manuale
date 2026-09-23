@@ -8,88 +8,6 @@
 // flash agar bisa dibaca lewat Debug screen setelah reboot/freeze.
 extern void saveCheckpoint(const char* label);
 
-// Kapasitas riwayat flow rate per sesi -- dipakai untuk hitung P95
-// pulsa (lihat startGrind()/onWeightSample()). Ukuran tetap di stack,
-// bukan heap growable -- cukup untuk sesi grind normal (~5-20 detik
-// pada laju sample HX711 ~10-80Hz, direkam tiap onWeightSample() saat
-// GRINDING, jadi ratusan entri paling banyak; dibuang FIFO (ring
-// buffer) kalau penuh -- lihat pushFlowSample()).
-struct FlowHistoryEntry {
-    float flowGps;
-    unsigned long timestampMs;
-};
-static const size_t GRIND_FLOW_HISTORY_CAPACITY = 512;
-static FlowHistoryEntry g_flowHistoryBuf[GRIND_FLOW_HISTORY_CAPACITY];
-static size_t g_flowHistoryHead = 0;   // index tulis berikutnya (ring buffer)
-static size_t g_flowHistoryCount = 0;  // jumlah entri terisi (maks CAPACITY)
-
-static void resetFlowHistory() {
-    g_flowHistoryHead = 0;
-    g_flowHistoryCount = 0;
-}
-
-static void pushFlowSample(float flowGps, unsigned long timestampMs) {
-    g_flowHistoryBuf[g_flowHistoryHead] = {flowGps, timestampMs};
-    g_flowHistoryHead = (g_flowHistoryHead + 1) % GRIND_FLOW_HISTORY_CAPACITY;
-    if (g_flowHistoryCount < GRIND_FLOW_HISTORY_CAPACITY) {
-        g_flowHistoryCount++;
-    }
-    // Ring buffer -- kalau penuh, entri TERTUA ditimpa (bukan
-    // dibuang begitu saja tanpa slot baru) -- tapi karena kita cuma
-    // butuh window GRIND_PULSE_P95_WINDOW_MS (2500ms) TERAKHIR
-    // sebelum predictive stop, entri lama di luar window itu memang
-    // tidak relevan lagi, jadi perilaku timpa ini aman.
-}
-
-// P95 dari window GRIND_PULSE_P95_WINDOW_MS (2500ms) TERAKHIR SEBELUM
-// nowMs (per review, FIX dari implementasi awal yang salah pakai
-// SELURUH histori sesi tanpa batas window -- window filtering ini
-// yang membuat GRIND_PULSE_P95_WINDOW_MS benar-benar berfungsi).
-// nowMs biasanya waktu predictive stop terjadi (dipanggil dari
-// WAIT_SETTLE, lihat onWeightSample()). Return NAN kalau tidak ada
-// sample dalam window itu.
-//
-// HEAP-FREE (per review, DIPERBAIKI dari draft sebelumnya): fungsi ini
-// SEBELUMNYA memakai std::vector<float> untuk `inWindow` -- itu
-// KONTRADIKSI dengan komentar buffer penyimpanan di atas
-// (g_flowHistoryBuf) yang menegaskan "bukan heap growable", karena
-// fungsi PEMROSESAN ini (bukan buffer penyimpanannya) tetap melakukan
-// alokasi heap (std::vector::reserve()/push_back()) tiap kali dipanggil.
-// Dampaknya kecil dalam praktik (fungsi ini hanya dipanggil SEKALI per
-// sesi grind, saat transisi ke PULSE_CORRECTION, bukan di jalur
-// real-time onWeightSample() yang dipanggil berkali-kali per detik),
-// TAPI untuk konsistensi penuh dengan prinsip "tidak ada heap alloc di
-// jalur grinding" yang didokumentasikan di atas, SEKARANG diganti
-// array fixed (ukuran sama dengan GRIND_FLOW_HISTORY_CAPACITY, di
-// stack) + std::sort langsung di array C-style -- tidak ada alokasi
-// heap sama sekali di fungsi ini.
-static float computeSessionP95(unsigned long nowMs) {
-    if (g_flowHistoryCount == 0) {
-        return NAN;
-    }
-
-    unsigned long windowStart = (nowMs > GRIND_PULSE_P95_WINDOW_MS) ? (nowMs - GRIND_PULSE_P95_WINDOW_MS) : 0;
-
-    static float inWindow[GRIND_FLOW_HISTORY_CAPACITY];  // static: dialokasikan sekali, bukan per-panggilan (menghindari re-zeroing stack besar tiap panggil, walau fungsi ini jarang dipanggil)
-    size_t inWindowCount = 0;
-    for (size_t i = 0; i < g_flowHistoryCount; i++) {
-        // g_flowHistoryHead menunjuk slot TULIS berikutnya -- entri
-        // terisi berada di [head-count, head) modulo CAPACITY.
-        size_t idx = (g_flowHistoryHead + GRIND_FLOW_HISTORY_CAPACITY - g_flowHistoryCount + i) % GRIND_FLOW_HISTORY_CAPACITY;
-        if (g_flowHistoryBuf[idx].timestampMs >= windowStart && g_flowHistoryBuf[idx].timestampMs <= nowMs) {
-            inWindow[inWindowCount++] = g_flowHistoryBuf[idx].flowGps;
-        }
-    }
-
-    if (inWindowCount == 0) {
-        return NAN;
-    }
-
-    std::sort(inWindow, inWindow + inWindowCount);
-    size_t idx = (size_t)(0.95f * (inWindowCount - 1));
-    return inWindow[idx];
-}
-
 GrindController::GrindController(WeightFilter* weightFilter, MotorController* motor, LatencyCalibrator* calibrator)
     : weightFilter_(weightFilter), motor_(motor), calibrator_(calibrator),
       state_(GrindState::IDLE), result_(GrindResult::NONE), abortReason_(AbortReason::NONE),
@@ -258,9 +176,6 @@ bool GrindController::startGrind(float targetDoseG) {
     weightAfterSettle_      = NAN;
     weightAtMotorOff100ms_  = NAN;
     weightAtMotorOff300ms_  = NAN;
-
-    resetFlowHistory();
-    sessionPulseFlowGps_ = NAN;
 
     Serial.printf("[GRIND] Mulai -- dose=%.2fg tare=%.2fg target=%.2fg (earlyStop=%.2fg, tolerance=%.3fg, max_pulses=%d, settle=%lums)\n",
                   targetDoseG_, startWeightG_, targetAbsoluteG_, earlyStopG_,
@@ -443,19 +358,14 @@ void GrindController::onWeightSample(float rawWeightG, unsigned long sampleTimes
             // terlepas dari besar dose (2g untuk 18g = 2g untuk 20g).
             float stopThreshold = targetAbsoluteG_ - earlyStopG_;
 
-            // Rekam flow ke history untuk P95 pulse correction
+            // Flow rate masih dihitung untuk tampilan informatif di UI
             FlowRateResult flow = weightFilter_->computeFlowRate();
-            if (flow.valid && flow.flowRateGps >= GRIND_FLOW_DETECTION_THRESHOLD_GPS) {
-                pushFlowSample(flow.flowRateGps, sampleTimestampMs);
-            }
+            (void)flow;  // tidak dipakai untuk logic stop maupun pulse
 
             if (currentWeight >= stopThreshold) {
                 Serial.printf("[GRIND] Early stop -- berat %.2fg >= threshold %.2fg (earlyStop=%.2fg, target=%.2fg).\n",
                               currentWeight, stopThreshold, earlyStopG_, targetAbsoluteG_);
                 saveCheckpoint("motor_stop");
-
-                // Hitung P95 flow untuk pulse correction
-                sessionPulseFlowGps_ = computeSessionP95(millis());
 
                 if (!stopMotorOrAbort()) return;
 
@@ -511,8 +421,12 @@ void GrindController::onWeightSample(float rawWeightG, unsigned long sampleTimes
 }
 
 // ------------------------------------------------------------
-// Pulse correction -- P95 sesi (lihat computeSessionP95()), BUKAN
-// flow_now real-time per pulsa.
+// Pulse correction -- stepped fixed duration berdasarkan error:
+//   error > 0.5g  → 100ms
+//   error > 0.3g  → 60ms
+//   error ≤ 0.3g  → 40ms
+// Feedback aktual berat setelah tiap pulse lebih andal dari
+// estimasi flow (flow saat pulse berbeda dari flow saat grinding).
 // ------------------------------------------------------------
 void GrindController::startPulse(unsigned long nowMs) {
     (void)nowMs;
@@ -659,12 +573,6 @@ void GrindController::finishPostPurgeAndDecide() {
         saveCheckpoint("purge_done_over");
         finishAsComplete();
     } else {
-        sessionPulseFlowGps_ = computeSessionP95(millis());
-        if (isnan(sessionPulseFlowGps_)) {
-            Serial.println("[GRIND] P95 sesi tidak tersedia (tidak ada sample flow terekam) -- pulsa akan pakai fallback.");
-        } else {
-            Serial.printf("[GRIND] P95 flow sesi ini: %.2f gps (dipakai untuk semua pulsa sesi ini)\n", sessionPulseFlowGps_);
-        }
         saveCheckpoint("purge_to_pulse");
         transitionTo(GrindState::PULSE_CORRECTION);
         startPulse(millis());
