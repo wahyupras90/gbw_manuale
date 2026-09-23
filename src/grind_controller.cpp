@@ -450,9 +450,6 @@ void GrindController::onWeightSample(float rawWeightG, unsigned long sampleTimes
                               currentWeight, stopThreshold, earlyStopG_, targetAbsoluteG_);
                 saveCheckpoint("motor_stop");
 
-                // Capture berat saat motor stop
-                weightAtMotorStop_ = currentWeight;
-
                 // Hitung P95 flow untuk pulse correction
                 sessionPulseFlowGps_ = computeSessionP95(millis());
 
@@ -468,8 +465,12 @@ void GrindController::onWeightSample(float rawWeightG, unsigned long sampleTimes
                 break;
             }
 
-            // Capture berat setelah settling, sebelum post-purge
-            weightAfterSettle_ = weightFilter_ ? weightFilter_->latestWeight() : NAN;
+            // Capture berat setelah settling, sebelum post-purge.
+            // weightAtMotorStop_ di-capture di sini (bukan saat relay OFF)
+            // karena motor masih berputar saat relay diklik -- pembacaan
+            // stabil baru tersedia setelah settlingTimeMs_ lewat.
+            weightAfterSettle_  = weightFilter_ ? weightFilter_->latestWeight() : NAN;
+            weightAtMotorStop_  = weightAfterSettle_;  // diagnostik: berat stabil pertama setelah motor OFF
 
             if (postPurgeEnabled_ && postPurgePulsesRemaining_ == 0) {
                 Serial.printf("[GRIND] Settle selesai -- mulai POST_PURGE (%d pulsa).\n", postPurgePulseCount_);
