@@ -8,8 +8,8 @@
 // flash agar bisa dibaca lewat Debug screen setelah reboot/freeze.
 extern void saveCheckpoint(const char* label);
 
-GrindController::GrindController(WeightFilter* weightFilter, MotorController* motor, LatencyCalibrator* calibrator)
-    : weightFilter_(weightFilter), motor_(motor), calibrator_(calibrator),
+GrindController::GrindController(WeightFilter* weightFilter, MotorController* motor)
+    : weightFilter_(weightFilter), motor_(motor),
       state_(GrindState::IDLE), result_(GrindResult::NONE), abortReason_(AbortReason::NONE),
       motorSafetyLockout_(false),
       targetDoseG_(0), targetAbsoluteG_(0), startWeightG_(0), finalWeightG_(0),

@@ -40,7 +40,6 @@ ui_shared_state_t g_ui_state = {
     .start_weight_g = 0.0f,
     .current_weight_g = 0.0f,
     .flow_rate_gps = 0.0f,
-    .flow_start_confirmed = false,
     .pulse_count = 0,
     .pulse_error_g = 0.0f,
     .grind_duration_ms = 0,
@@ -54,7 +53,6 @@ ui_shared_state_t g_ui_state = {
     .post_purge_enabled = false,
     .post_purge_pulse_count = GRIND_POST_PURGE_PULSE_COUNT_DEFAULT,
     .stability_threshold_g = 0.3f,
-    .last_coast_g = NAN,
 };
 
 static ui_screen_id_t s_current_screen = UI_SCREEN_IDLE;

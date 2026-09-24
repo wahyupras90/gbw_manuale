@@ -3,123 +3,27 @@
 #include <Arduino.h>
 #include "weight_filter.h"
 #include "motor_controller.h"
-#include "latency_calibrator.h"
 #include "config.h"
 
 // ============================================================
-// GrindController -- state machine predictive grind-by-weight
+// GrindController -- Early Stop G grind-by-weight controller
 // ============================================================
-// VERSI 2 -- MODEL REAL-TIME (menggantikan regresi statistik versi 1)
+// Motor berhenti earlyStopG_ gram sebelum target, sisa ditutup
+// coast natural + post-purge + stepped pulse correction.
 //
-// Perubahan besar dari versi sebelumnya, hasil verifikasi LANGSUNG ke
-// source code upstream (jaapp/smart-grind-by-weight,
-// src/controllers/weight_grind_strategy.cpp +
-// src/config/grind_control.h) -- BUKAN tebakan dari nama variabel
-// atau dokumentasi naratif semata. Keputusan final:
+// State machine: WAIT_STABLE → STARTING → GRINDING → WAIT_SETTLE
+// → POST_PURGE → PULSE_CORRECTION → COMPLETE
 //
-// MODEL LAMA (dibuang): coastWeightG = a * flowAtStop + b, regresi
-// linear dari dataset trial LatencyCalibrator yang dikumpulkan di
-// SATU kondisi grind (grind size/kopi tertentu). Masalah yang
-// ditemukan: ganti grind size/kopi mengubah profil flow rate secara
-// fundamental, dan regresi yang dilatih di satu kondisi tidak
-// otomatis representatif untuk kondisi lain -- bahkan dengan clamp ke
-// rentang observed, RELASI flow->overshoot itu sendiri bisa berbeda,
-// bukan cuma soal rentang nilai.
+// Stop decision: motor OFF saat berat >= targetAbsoluteG_ - earlyStopG_.
+// Sisa gap ditutup coast natural + post-purge + stepped pulse correction.
 //
-// MODEL BARU (dipakai sekarang) -- REAL-TIME PER SESI, tidak
-// bergantung dataset historis:
-//
-//   1) grind_latency_ms: diukur SETIAP SESI grind, dari motor ON
-//      sampai flow PERTAMA terdeteksi (>= GRIND_FLOW_DETECTION_THRESHOLD_GPS,
-//      dikonfirmasi dalam window GRIND_LATENCY_CONFIRMATION_MS = 500ms,
-//      PERSIS meniru upstream run_predictive_phase()). Ini T_onset
-//      (motor ON -> flow pertama), SECARA FISIK BEDA dari T_stop
-//      (keputusan OFF -> motor benar-benar berhenti mengalirkan kopi)
-//      -- upstream TIDAK mencampur keduanya, T_onset dipakai sebagai
-//      PROXY untuk estimasi coast/T_stop, dikoreksi lewat rasio (lihat
-//      poin 2).
-//
-//      KONFIRMASI 500ms (per review, FIX dari implementasi awal yang
-//      SALAH): flow >= threshold TIDAK BOLEH langsung dianggap
-//      "confirmed" dari SATU sample. State WAIT_FLOW_START mencatat
-//      candidateFlowStartMs_ begitu SATU sample pertama >= threshold
-//      terlihat, lalu TERUS memantau -- flow_confirmed_ baru jadi true
-//      kalau flow TETAP >= threshold SELAMA GRIND_LATENCY_CONFIRMATION_MS
-//      (500ms) BERTURUT-TURUT sejak candidate itu. Kalau flow turun
-//      di bawah threshold sebelum window selesai, candidate DIRESET
-//      (kembali menunggu sample pertama berikutnya) -- ini mencegah
-//      satu spike noise sesaat salah dianggap "flow sudah mulai".
-//      grind_latency_ms akhirnya = candidateFlowStartMs_ - motorStartedMs_
-//      (waktu SAMPLE PERTAMA yang memulai window konfirmasi yang
-//      berhasil, bukan waktu window itu SELESAI).
-//
-//   2) coast_time_ms = grind_latency_ms * GRIND_LATENCY_TO_COAST_RATIO
-//      Rasio ini mengonversi T_onset (mudah diukur) ke estimasi
-//      T_stop/coast (yang secara fisik berbeda). FIXED untuk versi
-//      pertama (bukan adaptif) -- lihat GRIND_LATENCY_TO_COAST_RATIO
-//      di config.h. TIDAK ADA LAGI GRIND_COAST_SAFETY_FACTOR terpisah
-//      -- itu sengaja DIHAPUS supaya tidak ada double-margin (T_onset
-//      x ratio x safety_factor tanpa dasar empiris jelas). Satu
-//      parameter, satu fungsi konversi.
-//
-//   3) motor_stop_target_weight_g = flow_now_gps * coast_time_ms / 1000
-//      flow_now_gps DIUKUR REAL-TIME (bukan dari histori/regresi) --
-//      ini yang membuat model otomatis mengikuti kondisi grind SAAT
-//      INI (grind size, kopi, kelembapan, dst) tanpa perlu tahu
-//      kondisi itu secara eksplisit.
-//
-//   4) STOP saat currentWeight >= targetWeight - motor_stop_target_weight_g
-//      HANYA berlaku setelah flow CONFIRMED (state GRINDING). SELAMA
-//      WAIT_FLOW_START (flow belum confirmed), predictive stop TIDAK
-//      AKTIF SAMA SEKALI -- lihat poin safety di bawah (perbaikan
-//      penting dari implementasi awal yang salah pakai fallback 0).
-//
-// SAFETY SELAMA WAIT_FLOW_START (per review, FIX dari implementasi
-// awal): implementasi awal memakai motorStopTargetWeightG_ = 0
-// sebagai fallback sebelum flow confirmed, yang berarti stopThreshold
-// = targetAbsoluteG_ persis -- motor akan tetap menyala sampai berat
-// MENCAPAI TARGET PENUH kalau flow lambat terdeteksi, BERISIKO
-// OVERSHOOT BESAR (predictive stop yang seharusnya berhenti LEBIH
-// AWAL dari target malah tidak aktif sama sekali). Ini SALAH dan
-// SUDAH DIPERBAIKI: selama WAIT_FLOW_START, GrindController TIDAK
-// mengevaluasi predictive stop berdasarkan berat SAMA SEKALI --
-// satu-satunya jalan keluar dari state ini adalah (a) flow confirmed
-// -> lanjut GRINDING, atau (b) GRIND_STALL_TIMEOUT_MS terlampaui ->
-// ABORT(STALL). GRIND_STALL_TIMEOUT_MS (5000ms) HARUS cukup longgar
-// untuk mengakomodasi kopi yang butuh waktu lebih lama sebelum flow
-// muncul -- ini dipisahkan secara jelas dari GRIND_LATENCY_CONFIRMATION_MS
-// (500ms, durasi window konfirmasi setelah flow PERTAMA terlihat,
-// BUKAN batas waktu total menunggu flow muncul).
-//
-// PERAN BARU LatencyCalibrator (BUKAN LAGI sumber model, TIDAK
-// mempengaruhi keputusan stop GrindController sama sekali): alat
-// EKSPERIMEN terpisah untuk memvalidasi/menentukan
-// GRIND_LATENCY_TO_COAST_RATIO -- bandingkan grind_latency_ms terukur
-// vs overshoot aktual yang terjadi, cari rasio yang membuat prediksi
-// paling akurat. Setelah rasio ditetapkan (via eksperimen manual,
-// bukan otomatis), GrindController pakai angka itu sebagai konstanta
-// tetap -- BUKAN membaca ulang dataset LatencyCalibrator setiap
-// grind. Referensi ke LatencyCalibrator di constructor DIPERTAHANKAN
-// murni untuk kompatibilitas API/kemungkinan pemakaian command Serial
-// bersama, TAPI computeRegressionStatus()/regresi lama TIDAK ADA LAGI
-// dan TIDAK dipanggil dari jalur keputusan mana pun.
-//
-// PULSE CORRECTION -- stepped fixed duration berdasarkan error aktual
+// Pulse correction: stepped fixed duration (tidak pakai P95 flow):
 // (P95 flow dihapus sejak v1.0.42 karena flow saat pulse berbeda dari
 // flow saat grinding -- feedback berat aktual setelah tiap pulse lebih
 // andal): error >0.5g=100ms, >0.3g=60ms, ≤0.3g=40ms.
 //
-// SEMUA KONSTANTA REGRESI LAMA (GRIND_MIN_CALIBRATION_TRIALS,
-// GRIND_MIN_REGRESSION_R2, GRIND_MIN_FLOW_RANGE_GPS,
-// GRIND_COAST_SAFETY_FACTOR) DIHAPUS dari config.h -- tidak ada lagi
-// gate kesiapan berbasis dataset kalibrasi, karena model baru tidak
-// butuh dataset itu. Grind bisa langsung dicoba begitu hardware
-// terpasang (dengan risiko rasio default 1.0 belum terkalibrasi --
-// lihat README untuk proses kalibrasi rasio yang disarankan).
-//
 // STALL DETECTION, HARD OVERSHOOT, MAX DURATION, MOTOR OFF FAILURE
-// SAFETY -- TIDAK BERUBAH dari versi sebelumnya, tetap berlaku penuh
-// (lihat komentar di masing-masing bagian implementasi).
+// SAFETY tetap berlaku penuh.
 // ============================================================
 
 enum class GrindState {
@@ -164,18 +68,11 @@ enum class AbortReason {
 
 class GrindController {
 public:
-    GrindController(WeightFilter* weightFilter, MotorController* motor, LatencyCalibrator* calibrator);
+    GrindController(WeightFilter* weightFilter, MotorController* motor);
 
-    // Mulai predictive grind ke targetDoseG (dose TAMBAHAN dari
-    // kondisi berat saat ini -- tare otomatis dicatat dari berat saat
-    // command ini dipanggil, sama semantik dengan LatencyCalibrator).
-    // Return false kalau ditolak segera (berat belum stabil, sudah
-    // ada grind berjalan, dst) -- dalam kasus ini state tidak berubah
-    // dan tidak ada motor command dikirim sama sekali.
-    //
-    // TIDAK ADA LAGI gate "kalibrasi belum cukup" (regresi dihapus) --
-    // grind bisa langsung dicoba begitu berat stabil. GRIND_LATENCY_TO_COAST_RATIO
-    // default (1.0) dipakai apa adanya sampai dikalibrasi manual (lihat README).
+    // Mulai grind ke targetDoseG (dose TAMBAHAN dari berat saat ini --
+    // tare otomatis dicatat). Return false kalau ditolak segera
+    // (berat belum stabil, sudah ada grind berjalan, dst).
     bool startGrind(float targetDoseG);
 
     // Dipanggil tiap loop() -- HANYA cek kondisi berbasis waktu murni
@@ -284,7 +181,6 @@ public:
 private:
     WeightFilter* weightFilter_;
     MotorController* motor_;
-    LatencyCalibrator* calibrator_;  // dipertahankan untuk kompatibilitas API -- TIDAK dipakai di jalur keputusan stop, lihat catatan di atas
 
     GrindState state_;
     GrindResult result_;
@@ -320,7 +216,6 @@ private:
     unsigned long motorStartedMs_;
     unsigned long motorStoppedMs_;
 
-    // (sessionPulseFlowGps_ dihapus -- pulse correction pakai stepped duration, tidak butuh P95)
 
     int pulseAttempts_;
     float lastMotorRttMs_;

@@ -26,36 +26,20 @@
 // angka asli (placeholder 0 SENGAJA membuat readWeightGrams()
 // menolak dipakai, lihat hx711_reader.h).
 //
-// MODEL PREDICTIVE STOP -- VERSI 2, REAL-TIME (bukan lagi regresi
-// dari dataset kalibrasi terpisah). Predictive stop sekarang memakai
-// grind_latency_ms (T_onset, diukur SETIAP SESI grind) x
-// GRIND_LATENCY_TO_COAST_RATIO x flow_now REAL-TIME -- lihat
-// grind_controller.h untuk penjelasan lengkap & alasan perubahan.
-// GRIND_LATENCY_TO_COAST_RATIO (config.h, default 1.0) adalah TITIK
-// AWAL EKSPERIMEN, WAJIB dikalibrasi dari data GPIO+HX711 -- lihat
-// README bagian "Kalibrasi GRIND_LATENCY_TO_COAST_RATIO".
-// LatencyCalibrator TETAP ADA tapi perannya BERUBAH: sekarang alat
-// VALIDASI rasio (bandingkan grind_latency_ms vs overshoot aktual),
-// BUKAN lagi sumber model keputusan stop GrindController.
+// ALGORITMA STOP: Early Stop G -- motor berhenti X gram sebelum
+// target, sisa ditutup coast + post-purge + pulse correction.
+// Settable dari Grind Parameters UI (0.5-10g, default 2.0g).
 //
-// Command Serial -- SAMA PERSIS seperti firmware Tasmota+BLE (supaya
-// alur kerja operator tidak berubah): 'g <target>' kalibrasi
-// (sekarang untuk validasi rasio, bukan sumber model), 'x' batal, 'r'
-// lihat trial, 'c' hapus riwayat, 'grind <target>' predictive grind
-// (model real-time), 'gs' lihat angka model real-time sesi
-// saat ini/terakhir, 'stop' paksa abort grind yang sedang berjalan
-// (setara tombol Stop di UI -- lihat grind_force_abort()). TIDAK ADA
-// lagi 'd'/'t'/'tr' (command diagnostik jaringan Tasmota) karena tidak
-// ada Tasmota di firmware ini.
+// Command Serial: 'grind <target_gram>' mulai grind, 'gs' status,
+// 'stop' abort, 'raw' baca HX711 mentah.
 //
-// UI LVGL -- SEKARANG DISAMBUNG (per keputusan urutan kerja section 5
-// brief: item 1-6 sudah selesai). main.cpp adalah SATU-SATUNYA
-// jembatan antara GrindController (business logic) dan g_ui_state
-// (data UI) -- lihat syncGrindControllerToUi()/
-// handleGrindStateTransitionForUi() di bawah, dipanggil tiap loop()
-// SETELAH grindController.update(). Tombol Start di screen Idle
-// memanggil grind_start() (extern function di file ini), tombol Stop
-// di screen Predictive Grind/Pulse Correction memanggil
+// UI LVGL -- main.cpp adalah SATU-SATUNYA jembatan antara
+// GrindController (business logic) dan g_ui_state (data UI) --
+// lihat syncGrindControllerToUi()/handleGrindStateTransitionForUi()
+// di bawah, dipanggil tiap loop() SETELAH grindController.update().
+// Tombol Start di screen Idle memanggil grind_start() (extern
+// function di file ini), tombol Stop di screen Predictive Grind/
+// Pulse Correction memanggil
 // grind_force_abort() (extern function baru, menggantikan TODO
 // placeholder yang sebelumnya cuma navigate_to() tanpa hentikan
 // motor -- lihat perubahan di screen_predictive_grind.cpp/
@@ -88,7 +72,6 @@
 #include "weight_filter.h"
 #include "motor_controller.h"
 #include "hx711_reader.h"
-#include "latency_calibrator.h"
 #include "grind_controller.h"
 #include "debug_snapshot.h"
 #include "ota_manager.h"
@@ -118,8 +101,7 @@ extern unsigned long lv_port_touch_recovery_count(void);  // BARU -- diagnostik 
 static WeightFilter weightFilter;
 static GpioMotorController motorController(MOTOR_GPIO_PIN, MOTOR_GPIO_ACTIVE_HIGH);
 static HX711Reader hx711(HX711_DOUT_PIN, HX711_SCK_PIN, HX711_GAIN);
-static LatencyCalibrator latencyCalibrator(&weightFilter, &motorController);
-static GrindController grindController(&weightFilter, &motorController, &latencyCalibrator);
+static GrindController grindController(&weightFilter, &motorController);
 static OtaManager otaManager;
 
 // Dipakai untuk deteksi PERUBAHAN state (edge-triggered) supaya
@@ -927,7 +909,6 @@ static void syncGrindControllerToUi() {
     // boot), g_ui_state.target_absolute_g/start_weight_g TETAP pakai
     // default dari ui_screen_manager.cpp -- tidak ditimpa 0 di sini.
     g_ui_state.flow_rate_gps = grindController.currentFlowGps();
-    g_ui_state.flow_start_confirmed = false;
     g_ui_state.pulse_count = grindController.pulseAttempts();
     g_ui_state.pulse_count = grindController.pulseAttempts();
     // pulse_error_g -- selama PULSE_CORRECTION, "error saat ini" =
@@ -982,7 +963,7 @@ static void handleGrindStateTransitionForUi() {
             diagPrefs.putInt("lg_pulses",   grindController.lastGrindPulseCount());
             diagPrefs.end();
             // Sinkron ke UIState untuk tampil di Done screen (COAST G)
-            // last_coast_g dihapus -- Act. coast tidak lagi ditampilkan
+
         }
         // FIX BUG (ditemukan lewat testing sistematis, dilaporkan
         // sebagai "pencet Start langsung lompat ke Finish Grind" saat
@@ -1018,12 +999,8 @@ static void handleGrindStateTransitionForUi() {
 }
 
 // ------------------------------------------------------------
-// Command Serial -- 'grind'/'gs' ditangani di sini dulu (function
-// pointer, dipasang sebagai unknown-command-handler ke
-// LatencyCalibrator, SAMA POLA seperti firmware Tasmota+BLE) supaya
-// LatencyCalibrator tetap satu-satunya pembaca Serial (menghindari
-// dua consumer buffer Serial yang sama, lihat catatan arsitektur di
-// latency_calibrator.h).
+// Command Serial handler -- dipanggil dari handleSerialInput()
+// di loop(). Perintah: 'grind <target>', 'gs', 'stop', 'raw'.
 // ------------------------------------------------------------
 static void handleGrindCommand(const String& line) {
     if (line.startsWith("grind ") || line.startsWith("GRIND ")) {
@@ -1055,19 +1032,8 @@ static void handleGrindCommand(const String& line) {
         Serial.printf("  Early Stop G                            : %.2fg\n", grindController.earlyStopG());
         Serial.printf("  Target                                  : %.2f g\n", grindController.targetAbsoluteG());
         Serial.printf("  Current weight                          : %.2f g\n", grindController.currentWeightG());
-        // finalWeightG/finalErrorG -- BARU ditambahkan (sebelumnya
-        // tidak ditampilkan 'gs' sama sekali), supaya prosedur
-        // kalibrasi ratio yang benar (lihat README, pakai grindLatencyMs
-        // + error akhir dari SESI GRIND YANG SAMA lewat 'grind
-        // <target>' + 'gs', BUKAN campur data dengan LatencyCalibrator
-        // 'g <target>' yang terpisah) bisa benar-benar diikuti operator
-        // tanpa perlu hitung manual dari currentWeightG()/targetAbsoluteG().
-        // finalWeightG_ hanya valid setelah result() bukan NONE (grind
-        // sudah COMPLETE/ABORTED) -- NAN selama grind masih berjalan,
-        // dicetak apa adanya (termasuk NAN) supaya operator tahu belum
-        // ada hasil final untuk sesi yang sedang berlangsung.
-        Serial.printf("  final_weight_g (sesi ini/terakhir)        : %.3f g\n", grindController.finalWeightG());
-        Serial.printf("  final_error_g (final - target_absolut)    : %+.3f g\n", grindController.finalErrorG());
+        Serial.printf("  final_weight_g (sesi ini/terakhir)      : %.3f g\n", grindController.finalWeightG());
+        Serial.printf("  final_error_g (final - target)          : %+.3f g\n", grindController.finalErrorG());
         Serial.println("========================================");
         Serial.printf("  State grind sekarang: %d, result: %d, abortReason: %d\n",
                       (int)grindController.state(), (int)grindController.result(), (int)grindController.abortReason());
@@ -1087,10 +1053,17 @@ static void handleGrindCommand(const String& line) {
             Serial.println("[HX711] Kalibrasi (HX711_CALIBRATION_SCALE) belum diisi di config.h.");
         }
     } else {
-        Serial.println("[CALIB] Perintah: 'g <target_gram>' mulai, 'x' batal, 'r' lihat semua trial, 'c' hapus riwayat.");
-        Serial.println("[GRIND] Perintah: 'grind <target_gram>' predictive grind (model real-time), 'gs' lihat angka model sesi saat ini/terakhir, 'stop' paksa abort.");
+        Serial.println("[GRIND] Perintah: 'grind <target_gram>' mulai grind, 'gs' status sesi, 'stop' abort.");
         Serial.println("[HX711] Perintah: 'raw' baca sample mentah (debug wiring/kalibrasi).");
     }
+}
+
+static void handleSerialInput() {
+    if (!Serial.available()) return;
+    String line = Serial.readStringUntil('\n');
+    line.trim();
+    if (line.length() == 0) return;
+    handleGrindCommand(line);
 }
 
 void setup() {
@@ -1165,7 +1138,7 @@ void setup() {
         Serial.printf("[HX711] Tare kosmetik saat boot -- offset awal: %ld\n", bootOffset);
     }
 
-    latencyCalibrator.setUnknownCommandHandler(handleGrindCommand);
+    Serial.println("[INIT] Serial command handler siap.");
 
     // WiFi+OTA dimulai TERAKHIR (setelah motor/HX711/calibrator siap)
     // -- non-blocking, tidak menunda inisialisasi komponen kontrol
@@ -1191,18 +1164,15 @@ void setup() {
     Serial.println("[UI] LVGL siap.");
 
     Serial.println("\nSetup selesai.");
-    Serial.println("[CALIB] Kalibrasi coast/decay: 'g <target>' mulai, 'x' batal, 'r' lihat trial, 'c' hapus riwayat.");
-    Serial.println("[GRIND] Predictive grind (model real-time): 'grind <target>' mulai, 'gs' cek status/angka model.");
+    Serial.println("[GRIND] Perintah: 'grind <target>' mulai, 'gs' status, 'stop' abort.");
     Serial.println("[HX711] 'raw' baca sample mentah untuk debug wiring/kalibrasi.");
     Serial.println("[OTA] Status WiFi/OTA akan tercetak begitu connect (lihat log di atas beberapa detik lagi).");
 }
 
 void loop() {
-    // HX711 dibaca via POLLING (bukan callback async seperti BLE) --
-    // cek isReady() dulu supaya loop() TIDAK PERNAH blocking menunggu
-    // HX711 (beda dari BLE yang sample-nya masuk sendiri lewat NimBLE
-    // task terpisah). Kalau belum ready, skip iterasi ini, lanjut ke
-    // command Serial & grindController.update() seperti biasa.
+    handleSerialInput();
+
+    // HX711 dibaca via POLLING
     if (hx711.isReady()) {
         float rawWeight = hx711.readWeightGrams();
         unsigned long sampleTimestampMs = millis();
@@ -1210,24 +1180,11 @@ void loop() {
         if (!isnan(rawWeight)) {
             bool accepted = weightFilter.pushRawSample(rawWeight, sampleTimestampMs, GRIND_FLOW_RATE_MAX_SANE_GPS);
             if (accepted) {
-                // SEKALI PER SAMPLE VALID -- sama pola arsitektur
-                // seperti firmware BLE (lihat catatan di
-                // latency_calibrator.h/grind_controller.h), cuma
-                // sumbernya polling HX711 di sini, bukan BLE queue.
-                latencyCalibrator.onWeightSample(rawWeight, sampleTimestampMs);
                 grindController.onWeightSample(rawWeight, sampleTimestampMs);
             }
         }
     }
 
-    latencyCalibrator.update();
-
-    // Manual grind (test motor/kalibrasi) -- cek timeout TIAP loop(),
-    // tempatnya di sini (dekat awal loop(), sebelum grindController.
-    // update()) supaya auto-stop tetap responsif walau bagian lain
-    // loop() sedang sibuk. Tidak mengganggu grindController.update()
-    // sama sekali -- manual grind sepenuhnya terisolasi, lihat catatan
-    // lengkap di manual_grind_toggle().
     manual_grind_check_timeout();
     grindController.update();
 
