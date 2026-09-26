@@ -36,7 +36,7 @@ static void ui_update_toggle_visual(lv_obj_t* btn, lv_obj_t* label, bool state);
 
 extern void ui_close_grind_params(lv_event_t* e);
 extern void saveSettingsToNVS();
-extern void ui_enable_swipe_home(lv_obj_t* screen);
+
 
 static int s_tolerance_minus_repeat = 0;
 static int s_tolerance_plus_repeat = 0;
@@ -395,7 +395,7 @@ lv_obj_t* ui_screen_grind_params_create(void) {
     lv_obj_set_style_text_color(save_label, lv_color_hex(0x1a1305), 0);
     lv_obj_center(save_label);
 
-    ui_enable_swipe_home(s_screen);
 
+    ui_enable_swipe_to_set_target(s_screen);
     return s_screen;
 }

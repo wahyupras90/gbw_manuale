@@ -15,7 +15,7 @@ static lv_obj_t* s_reject_label = nullptr;
 
 extern void ui_open_settings(lv_event_t* e);
 extern void ui_start_grind(lv_event_t* e);
-extern void ui_enable_swipe_home(lv_obj_t* screen);  // swipe kanan -> Set Target (Home)
+  // swipe kanan -> Set Target (Home)
 
 static void start_btn_cb(lv_event_t* e) {
     if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
@@ -173,7 +173,6 @@ lv_obj_t* ui_screen_idle_create(void) {
     lv_obj_set_style_text_color(start_label, lv_color_hex(0x1a1305), 0);
     lv_obj_center(start_label);
 
-    ui_enable_swipe_home(s_screen);  // layar aman -- swipe kanan boleh aktif (lihat catatan lengkap di ui_screen_manager.cpp)
 
     return s_screen;
 }

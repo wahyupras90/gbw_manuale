@@ -153,6 +153,7 @@ lv_obj_t* ui_screen_scale_create(void) {
     lv_obj_center(back_label);
 
     s_lastRefreshMs = 0;
+    ui_enable_swipe_to_set_target(s_screen);
     return s_screen;
 }
 

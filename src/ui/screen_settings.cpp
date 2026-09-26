@@ -23,7 +23,7 @@ static lv_obj_t* s_current_version_label = nullptr;
 static lv_obj_t* s_latest_version_label = nullptr;
 
 extern void ui_close_settings(lv_event_t* e);
-extern void ui_enable_swipe_home(lv_obj_t* screen);
+
 extern void ui_open_grind_params(lv_event_t* e);
 extern void ui_open_manual_grind(lv_event_t* e);
 extern void ui_open_scale(lv_event_t* e);
@@ -180,7 +180,7 @@ lv_obj_t* ui_screen_settings_create(void) {
     lv_obj_set_style_text_color(back_label, COLOR_ACCENT, 0);
     lv_obj_center(back_label);
 
-    ui_enable_swipe_home(s_screen);
 
+    ui_enable_swipe_to_set_target(s_screen);
     return s_screen;
 }

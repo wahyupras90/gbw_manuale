@@ -252,5 +252,6 @@ lv_obj_t* ui_screen_debug_create(void) {
     lv_obj_center(back_label);
 
     s_lastRefreshMs = 0;  // paksa refresh pertama SEGERA (bukan tunggu 300ms) begitu layar ini dibuka pertama kali
+    ui_enable_swipe_to_set_target(s_screen);
     return s_screen;
 }

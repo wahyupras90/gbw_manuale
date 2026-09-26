@@ -13,8 +13,9 @@ static lv_obj_t* s_pulse_stat = nullptr;
 static lv_obj_t* s_duration_stat = nullptr;
 
 extern void ui_open_settings(lv_event_t* e);
+extern void ui_enable_swipe_new_grind(lv_obj_t* screen);
 extern void ui_new_grind(lv_event_t* e);
-extern void ui_enable_swipe_home(lv_obj_t* screen);  // swipe kanan -> Set Target (Home)
+  // swipe kanan -> Set Target (Home)
 
 static void new_grind_cb(lv_event_t* e) {
     if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
@@ -143,8 +144,8 @@ lv_obj_t* ui_screen_done_create(void) {
     lv_obj_set_style_text_color(new_grind_label, COLOR_SUCCESS, 0);
     lv_obj_center(new_grind_label);
 
-    ui_enable_swipe_home(s_screen);  // layar aman -- swipe kanan boleh aktif
 
+    ui_enable_swipe_new_grind(s_screen);
     return s_screen;
 }
 

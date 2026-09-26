@@ -123,25 +123,8 @@ static void navigate_to(ui_screen_id_t id) {
 }
 
 // ============================================================
-// SWIPE-TO-HOME (permintaan eksplisit) -- swipe ke KANAN pada layar
-// mengembalikan ke UI_SCREEN_SET_TARGET (Home yang baru, lihat
-// ui_init()). SENGAJA HANYA dipasang di layar yang statusnya "aman"
-// (Set Target, Idle, Done, Settings) -- TIDAK pernah dipasang di
-// UI_SCREEN_PREDICTIVE_GRIND atau UI_SCREEN_PULSE_CORRECTION (saat
-// motor sedang aktif menggiling), supaya operator tidak bisa tidak
-// sengaja "kabur" dari layar itu lewat swipe selagi grind berjalan --
-// pembatalan sesi yang sedang aktif harus tetap eksplisit lewat
-// tombol Stop (stop_btn_cb -> grind_force_abort()), bukan gesture
-// yang gampang ke-trigger tanpa sengaja.
-// Counter total ui_go_home() terpanggil sejak boot -- BARU,
-// ditambahkan untuk diagnosis laporan "layar tiba-tiba lompat ke Set
-// Target SAAT GRINDING, sesekali/random, kedipan lebih cepat dari
-// reboot". Kalau counter ini naik BERBARENGAN dengan kejadian tsb
-// (dicek lewat Debug screen sesudahnya), itu mengarah ke phantom
-// gesture (LVGL salah mendeteksi LV_DIR_RIGHT dari noise touch),
-// BUKAN reboot -- lihat catatan lengkap di debug_snapshot.h. Dibaca
-// lewat ui_home_gesture_count() (dipanggil grind_get_debug_snapshot()
-// di main.cpp). RAM-only, cukup untuk diagnosis satu sesi pemakaian.
+// NAVIGASI HELPERS
+// ============================================================
 static unsigned long s_homeGestureCount = 0;
 
 void ui_go_home(lv_event_t* e) {
@@ -153,22 +136,32 @@ unsigned long ui_home_gesture_count(void) {
     return s_homeGestureCount;
 }
 
-static void gesture_to_home_cb(lv_event_t* e) {
+// Swipe bawah ke atas -- navigasi ke Set Target (dari Settings/sub-menu)
+static void gesture_to_set_target_cb(lv_event_t* e) {
     lv_indev_t* indev = lv_indev_get_act();
     if (indev == nullptr) return;
     lv_dir_t dir = lv_indev_get_gesture_dir(indev);
-    if (dir == LV_DIR_RIGHT) {
-        ui_go_home(e);
+    if (dir == LV_DIR_TOP) {
+        navigate_to(UI_SCREEN_SET_TARGET);
     }
 }
 
-// Dipanggil dari screen_*_create() UNTUK LAYAR AMAN SAJA (lihat
-// catatan di atas) -- memasang gesture swipe-kanan-untuk-home ke
-// objek screen itu sendiri. TIDAK dipanggil dari
-// screen_predictive_grind.cpp maupun screen_pulse_correction.cpp,
-// itu keputusan sadar bukan kelalaian.
-void ui_enable_swipe_home(lv_obj_t* screen) {
-    lv_obj_add_event_cb(screen, gesture_to_home_cb, LV_EVENT_GESTURE, NULL);
+// Swipe bawah ke atas -- New Grind (dari Done screen)
+static void gesture_done_to_new_grind_cb(lv_event_t* e) {
+    lv_indev_t* indev = lv_indev_get_act();
+    if (indev == nullptr) return;
+    lv_dir_t dir = lv_indev_get_gesture_dir(indev);
+    if (dir == LV_DIR_TOP) {
+        navigate_to(UI_SCREEN_SET_TARGET);
+    }
+}
+
+void ui_enable_swipe_to_set_target(lv_obj_t* screen) {
+    lv_obj_add_event_cb(screen, gesture_to_set_target_cb, LV_EVENT_GESTURE, NULL);
+}
+
+void ui_enable_swipe_new_grind(lv_obj_t* screen) {
+    lv_obj_add_event_cb(screen, gesture_done_to_new_grind_cb, LV_EVENT_GESTURE, NULL);
 }
 
 // ============================================================
@@ -365,14 +358,11 @@ void ui_tick(void) {
 // INIT -- dipanggil sekali dari setup() di main.cpp
 // ============================================================
 void ui_init(void) {
-    // PERUBAHAN (permintaan eksplisit): Home/screen pertama saat boot
-    // sekarang UI_SCREEN_SET_TARGET (bukan UI_SCREEN_IDLE lagi) --
-    // operator mengatur dosis dulu sebelum masuk ke layar siap-grind.
-    // s_current_screen sudah default UI_SCREEN_IDLE di deklarasi
-    // static di atas -- TIDAK diubah di sana supaya ui_confirm_target()
-    // dan alur "Set Target -> Confirm -> Idle" tetap konsisten seperti
-    // sebelumnya (Set Target SELALU transit ke Idle lewat Confirm,
-    // tidak pernah jadi tujuan balik dari layar lain kecuali lewat
-    // swipe/back -- lihat ui_go_home()).
+    // Pre-create semua screen saat boot -- mencegah stack overflow
+    // saat screen di-create pertama kali dari screen lain yang sudah
+    // aktif (terutama Settings dari Done screen).
+    for (int i = 0; i < 10; i++) {
+        get_or_create_screen((ui_screen_id_t)i);
+    }
     navigate_to(UI_SCREEN_SET_TARGET);
 }
