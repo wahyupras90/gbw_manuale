@@ -1,6 +1,7 @@
 #include "ui_common.h"
 #include "../../include/config.h"
 #include <cstdio>
+extern void ui_enable_swipe_to_set_target(lv_obj_t* screen);
 
 // ============================================================
 // GRIND PARAMETERS SCREEN -- 7 parameter GRIND dipindah dari

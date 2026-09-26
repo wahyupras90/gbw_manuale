@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>  // strcmp() -- BARU, dipakai bandingkan resetReasonStr di ui_screen_debug_update()
 #include <math.h>   // isnan()
+extern void ui_enable_swipe_to_set_target(lv_obj_t* screen);
 
 // ============================================================
 // DEBUG SCREEN -- diagnostik HX711/validasi grind TANPA Serial.
@@ -183,7 +184,6 @@ lv_obj_t* ui_screen_debug_create(void) {
     s_screen = lv_obj_create(NULL);
     ui_apply_screen_bg(s_screen);
     lv_obj_clear_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-    // TIDAK ada ui_enable_swipe_home() -- konsisten dengan layar
     // sekunder lain yang diakses dari Settings (Manual Grind), operator
     // keluar lewat tombol Back eksplisit supaya tidak ambigu.
 

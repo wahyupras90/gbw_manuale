@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <cstdio>
 #include <math.h>
+extern void ui_enable_swipe_to_set_target(lv_obj_t* screen);
 
 extern DebugSnapshot grind_get_debug_snapshot();
 extern void ui_close_scale(lv_event_t* e);

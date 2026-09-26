@@ -3,6 +3,7 @@
 #include <cstdio>
 #include "../../include/github_ota.h"
 #include "../../include/version.h"
+extern void ui_enable_swipe_to_set_target(lv_obj_t* screen);
 
 // ============================================================
 // SETTINGS SCREEN -- ringkas, 4 baris saja:
