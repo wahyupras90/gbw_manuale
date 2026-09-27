@@ -162,7 +162,7 @@ void ui_screen_done_update(void) {
     // karena akurasi grind dievaluasi di level absolut yang sama
     // seperti GrindController, bukan di level dose.
     float doseFinal = g_ui_state.current_weight_g - g_ui_state.start_weight_g;
-    snprintf(buf, sizeof(buf), "%.2fg", doseFinal);
+    snprintf(buf, sizeof(buf), "%.1fg", doseFinal);
     lv_label_set_text(s_weight_label, buf);
 
     float error = g_ui_state.current_weight_g - g_ui_state.target_absolute_g;
