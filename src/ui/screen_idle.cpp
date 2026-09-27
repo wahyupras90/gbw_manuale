@@ -232,6 +232,7 @@ void ui_screen_idle_update(void) {
     lv_label_set_text(s_weight_label, "0.00g");
     bool portafilterDetected = g_ui_state.current_weight_g >= PORTAFILTER_DETECT_THRESHOLD_G;
     lv_obj_set_style_text_color(s_weight_label, portafilterDetected ? COLOR_TEXT_PRIMARY : COLOR_TEXT_SECONDARY, 0);
+    bool cupPresent = portafilterDetected;  // alias untuk auto-start logic
 
     char buf[24];
     snprintf(buf, sizeof(buf), "TARGET %.1fg", g_ui_state.target_weight_g);
@@ -240,5 +241,30 @@ void ui_screen_idle_update(void) {
     snprintf(buf, sizeof(buf), "0/%d", g_ui_state.max_pulse_attempts);
     lv_label_set_text(lv_obj_get_child(s_pulse_stat, 0), buf);
 
-    // Ring tetap 0% di Idle -- tidak merefleksikan berat, cuma indikator status siap
+    // Auto-start: deteksi rising edge cup (sebelumnya tidak ada, sekarang ada)
+    // lalu tunggu 500ms stabil sebelum mulai grind
+    static bool s_cup_was_present = false;
+    static unsigned long s_cup_stable_since_ms = 0;
+    static bool s_cup_stable_pending = false;
+
+    if (!s_cup_was_present && cupPresent) {
+        s_cup_stable_pending = true;
+        s_cup_stable_since_ms = millis();
+    }
+
+    if (s_cup_stable_pending && cupPresent) {
+        if ((millis() - s_cup_stable_since_ms) >= 500UL) {
+            s_cup_stable_pending = false;
+            extern void ui_start_grind(lv_event_t* e);
+            ui_start_grind(nullptr);
+        }
+    }
+
+    if (!cupPresent) {
+        s_cup_stable_pending = false;
+    }
+
+    s_cup_was_present = cupPresent;
+
+    // Ring tetap 0% di Idle
 }

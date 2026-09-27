@@ -336,6 +336,7 @@ void ui_tick(void) {
         case UI_SCREEN_PREDICTIVE_GRIND: ui_screen_predictive_grind_update(); break;
         case UI_SCREEN_PULSE_CORRECTION: ui_screen_pulse_correction_update(); break;
         case UI_SCREEN_MANUAL_GRIND:     ui_screen_manual_grind_update(); break;
+        case UI_SCREEN_DONE:             ui_screen_done_update(); break;
         case UI_SCREEN_DEBUG:            ui_screen_debug_update(); break;
         case UI_SCREEN_SCALE:            ui_screen_scale_update(); break;
         default: break;  // Set Target, Done, Settings tidak perlu tick berkala
