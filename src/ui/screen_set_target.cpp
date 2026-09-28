@@ -89,7 +89,6 @@ lv_obj_t* ui_screen_set_target_create(void) {
     // Roller
     s_roller = lv_roller_create(s_screen);
     lv_roller_set_options(s_roller, s_options, LV_ROLLER_MODE_NORMAL);
-    lv_roller_set_visible_row_count(s_roller, 3);
 
     // Ukuran: lebar penuh - margin, tinggi auto dari row count
     lv_obj_set_width(s_roller, SCREEN_WIDTH);
@@ -104,14 +103,18 @@ lv_obj_t* ui_screen_set_target_create(void) {
     lv_obj_set_style_shadow_width(s_roller, 0, 0);
 
     // Style item normal (muted)
-    lv_obj_set_style_text_font(s_roller, &lv_font_montserrat_40, 0);
+    lv_obj_set_style_text_font(s_roller, &lv_font_montserrat_48, 0);
     lv_obj_set_style_text_color(s_roller, lv_color_hex(0x666666), 0);
 
     // Style item selected (accent, besar)
-    lv_obj_set_style_text_font(s_roller, &lv_font_montserrat_40, LV_PART_SELECTED);
+    lv_obj_set_style_text_font(s_roller, &lv_font_montserrat_48, LV_PART_SELECTED);
     lv_obj_set_style_text_color(s_roller, COLOR_ACCENT, LV_PART_SELECTED);
     lv_obj_set_style_bg_opa(s_roller, LV_OPA_TRANSP, LV_PART_SELECTED);
     lv_obj_set_style_border_width(s_roller, 0, LV_PART_SELECTED);
+
+    // Tinggi dihitung dari font MAIN + line_space -> panggil SETELAH keduanya diset
+    lv_roller_set_visible_row_count(s_roller, 3);
+    lv_obj_align(s_roller, LV_ALIGN_CENTER, 0, -10);
 
     lv_obj_clear_flag(s_roller, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
