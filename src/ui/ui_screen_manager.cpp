@@ -359,11 +359,8 @@ void ui_tick(void) {
 // INIT -- dipanggil sekali dari setup() di main.cpp
 // ============================================================
 void ui_init(void) {
-    // Pre-create semua screen saat boot -- mencegah stack overflow
-    // saat screen di-create pertama kali dari screen lain yang sudah
-    // aktif (terutama Settings dari Done screen).
-    for (int i = 0; i < 10; i++) {
-        get_or_create_screen((ui_screen_id_t)i);
-    }
+    // Pre-create Settings saja -- mencegah stack overflow saat
+    // Settings dibuka dari Done screen. Screen lain tetap lazy.
+    get_or_create_screen(UI_SCREEN_SETTINGS);
     navigate_to(UI_SCREEN_SET_TARGET);
 }
