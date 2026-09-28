@@ -85,7 +85,7 @@
 #define LV_USE_MENU         0   /* BARU -- default aktif */
 #define LV_USE_METER        0   /* BARU -- default aktif */
 #define LV_USE_MSGBOX       0   /* default aktif, butuh BTNMATRIX */
-#define LV_USE_ROLLER       0
+#define LV_USE_ROLLER       1
 #define LV_USE_SLIDER       0
 #define LV_USE_SPAN         0   /* BARU -- default aktif */
 #define LV_USE_SPINBOX      0   /* default aktif, butuh TEXTAREA */
@@ -140,6 +140,7 @@
 #define LV_FONT_MONTSERRAT_16 1
 #define LV_FONT_MONTSERRAT_32 1
 #define LV_FONT_MONTSERRAT_40 1
+#define LV_FONT_MONTSERRAT_48 1
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
 
 /*====================
