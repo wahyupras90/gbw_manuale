@@ -73,21 +73,6 @@ static void confirm_cb(lv_event_t* e) {
     ui_confirm_target(s_pending_target);
 }
 
-// Swipe kiri/kanan untuk preset 10g/18g
-static void swipe_preset_cb(lv_event_t* e) {
-    if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
-    lv_indev_t* indev = lv_indev_get_act();
-    if (indev == nullptr) return;
-    lv_dir_t dir = lv_indev_get_gesture_dir(indev);
-    if (dir == LV_DIR_LEFT) {
-        s_pending_target = 10.0f;
-        update_target_label();
-    } else if (dir == LV_DIR_RIGHT) {
-        s_pending_target = 18.0f;
-        update_target_label();
-    }
-}
-
 lv_obj_t* ui_screen_set_target_create(void) {
     s_screen = lv_obj_create(NULL);
     ui_apply_screen_bg(s_screen);
@@ -175,9 +160,6 @@ lv_obj_t* ui_screen_set_target_create(void) {
     lv_obj_set_style_text_font(start_label, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(start_label, lv_color_hex(0x1a1305), 0);
     lv_obj_center(start_label);
-
-    // Swipe kiri/kanan = preset 10g/18g (di seluruh screen)
-    lv_obj_add_event_cb(s_screen, swipe_preset_cb, LV_EVENT_GESTURE, NULL);
 
     return s_screen;
 }
