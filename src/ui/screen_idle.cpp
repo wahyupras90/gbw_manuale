@@ -232,7 +232,6 @@ void ui_screen_idle_update(void) {
     lv_label_set_text(s_weight_label, "0.00g");
     bool portafilterDetected = g_ui_state.current_weight_g >= PORTAFILTER_DETECT_THRESHOLD_G;
     lv_obj_set_style_text_color(s_weight_label, portafilterDetected ? COLOR_TEXT_PRIMARY : COLOR_TEXT_SECONDARY, 0);
-    bool cupPresent = portafilterDetected;  // alias untuk auto-start logic
 
     char buf[24];
     snprintf(buf, sizeof(buf), "TARGET %.1fg", g_ui_state.target_weight_g);
@@ -241,30 +240,62 @@ void ui_screen_idle_update(void) {
     snprintf(buf, sizeof(buf), "0/%d", g_ui_state.max_pulse_attempts);
     lv_label_set_text(lv_obj_get_child(s_pulse_stat, 0), buf);
 
-    // Auto-start: deteksi rising edge cup (sebelumnya tidak ada, sekarang ada)
-    // lalu tunggu 500ms stabil sebelum mulai grind
-    static bool s_cup_was_present = false;
-    static unsigned long s_cup_stable_since_ms = 0;
-    static bool s_cup_stable_pending = false;
+    // Auto-start berbasis DELTA berat (bukan nilai absolut). Auto-tare tiap
+    // grind membuat berat absolut ~0 saat cup terpasang, jadi ambang absolut
+    // 50g tidak pernah tercapai setelah grind pertama. Cup dianggap
+    // diletakkan bila berat naik >= 50g dari baseline dan stabil 500 ms.
+    static bool          s_baseline_init    = false;
+    static unsigned long s_last_call_ms     = 0;
+    static float         s_baseline_g       = 0.0f;
+    static bool          s_pending          = false;
+    static unsigned long s_pending_since_ms = 0;
+    static float         s_win_min_g        = 0.0f;
+    static float         s_win_max_g        = 0.0f;
 
-    if (!s_cup_was_present && cupPresent) {
-        s_cup_stable_pending = true;
-        s_cup_stable_since_ms = millis();
+    const float          AUTOSTART_DELTA_G       = PORTAFILTER_DETECT_THRESHOLD_G;
+    const float          AUTOSTART_STABLE_BAND_G = 1.0f;
+    const unsigned long  AUTOSTART_STABLE_MS     = 500UL;
+
+    const float          w   = g_ui_state.current_weight_g;
+    const unsigned long  now = millis();
+
+    // Masuk layar Idle (jeda pemanggilan > 1 detik): baseline = berat saat
+    // ini, sehingga cup yang sudah terpasang TIDAK memicu grind.
+    if (!s_baseline_init || (now - s_last_call_ms) > 1000UL) {
+        s_baseline_g    = w;
+        s_pending       = false;
+        s_baseline_init = true;
     }
+    s_last_call_ms = now;
 
-    if (s_cup_stable_pending && cupPresent) {
-        if ((millis() - s_cup_stable_since_ms) >= 500UL) {
-            s_cup_stable_pending = false;
+    // Baseline ikut berat terendah (cup diangkat -> baseline turun).
+    if (!s_pending && w < s_baseline_g) s_baseline_g = w;
+
+    const bool risen = (w - s_baseline_g) >= AUTOSTART_DELTA_G;
+
+    if (!s_pending) {
+        if (risen) {
+            s_pending          = true;
+            s_pending_since_ms = now;
+            s_win_min_g        = w;
+            s_win_max_g        = w;
+        }
+    } else if (!risen) {
+        s_pending = false;
+    } else {
+        if (w < s_win_min_g) s_win_min_g = w;
+        if (w > s_win_max_g) s_win_max_g = w;
+        if ((s_win_max_g - s_win_min_g) > AUTOSTART_STABLE_BAND_G) {
+            // belum stabil -> mulai ulang jendela 500 ms
+            s_pending_since_ms = now;
+            s_win_min_g        = w;
+            s_win_max_g        = w;
+        } else if ((now - s_pending_since_ms) >= AUTOSTART_STABLE_MS) {
+            s_pending    = false;
+            s_baseline_g = w;  // cegah picu ulang kalau grind ditolak
             extern void ui_start_grind(lv_event_t* e);
             ui_start_grind(nullptr);
         }
     }
-
-    if (!cupPresent) {
-        s_cup_stable_pending = false;
-    }
-
-    s_cup_was_present = cupPresent;
-
     // Ring tetap 0% di Idle
 }
