@@ -89,13 +89,13 @@ lv_obj_t* ui_screen_set_target_create(void) {
     // Roller
     s_roller = lv_roller_create(s_screen);
     lv_roller_set_options(s_roller, s_options, LV_ROLLER_MODE_NORMAL);
-    lv_roller_set_visible_row_count(s_roller, 5);
+    lv_roller_set_visible_row_count(s_roller, 3);
 
     // Ukuran: lebar penuh - margin, tinggi auto dari row count
     lv_obj_set_width(s_roller, SCREEN_WIDTH);
     lv_obj_set_style_pad_all(s_roller, 0, 0);
     lv_obj_set_style_text_align(s_roller, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_line_space(s_roller, 18, 0);
+    lv_obj_set_style_text_line_space(s_roller, 12, 0);
     lv_obj_align(s_roller, LV_ALIGN_CENTER, 0, -10);
 
     // Style roller — background transparan, tanpa border
@@ -104,11 +104,11 @@ lv_obj_t* ui_screen_set_target_create(void) {
     lv_obj_set_style_shadow_width(s_roller, 0, 0);
 
     // Style item normal (muted)
-    lv_obj_set_style_text_font(s_roller, &lv_font_montserrat_32, 0);
-    lv_obj_set_style_text_color(s_roller, lv_color_hex(0x555555), 0);
+    lv_obj_set_style_text_font(s_roller, &lv_font_montserrat_40, 0);
+    lv_obj_set_style_text_color(s_roller, lv_color_hex(0x666666), 0);
 
     // Style item selected (accent, besar)
-    lv_obj_set_style_text_font(s_roller, &lv_font_montserrat_48, LV_PART_SELECTED);
+    lv_obj_set_style_text_font(s_roller, &lv_font_montserrat_40, LV_PART_SELECTED);
     lv_obj_set_style_text_color(s_roller, COLOR_ACCENT, LV_PART_SELECTED);
     lv_obj_set_style_bg_opa(s_roller, LV_OPA_TRANSP, LV_PART_SELECTED);
     lv_obj_set_style_border_width(s_roller, 0, LV_PART_SELECTED);
@@ -117,7 +117,9 @@ lv_obj_t* ui_screen_set_target_create(void) {
 
     // Set posisi awal dari NVS
     float initial = load_last_target();
+    lv_obj_update_layout(s_roller);
     lv_roller_set_selected(s_roller, g_to_roller_index(initial), LV_ANIM_OFF);
+    lv_obj_invalidate(s_roller);
 
     // Tombol START — posisi standar BOTTOM_MID -28
     lv_obj_t* start_btn = lv_btn_create(s_screen);
