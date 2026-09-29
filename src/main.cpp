@@ -1178,7 +1178,15 @@ void loop() {
         unsigned long sampleTimestampMs = millis();
 
         if (!isnan(rawWeight)) {
-            bool accepted = weightFilter.pushRawSample(rawWeight, sampleTimestampMs, GRIND_FLOW_RATE_MAX_SANE_GPS);
+            // Idle: lonjakan mendadak (cup diletakkan/diangkat) itu wajar,
+            // bukan outlier -- pakai batas longgar supaya current_weight_g
+            // tidak butuh puluhan detik untuk "mengejar" berat cup.
+            // Grinding tetap ketat (GRIND_FLOW_RATE_MAX_SANE_GPS) supaya
+            // deteksi outlier flow tetap efektif selama proses grind.
+            float maxSaneFlowGps = (grindController.state() == GrindState::IDLE)
+                                        ? GRIND_FLOW_RATE_MAX_SANE_IDLE_GPS
+                                        : GRIND_FLOW_RATE_MAX_SANE_GPS;
+            bool accepted = weightFilter.pushRawSample(rawWeight, sampleTimestampMs, maxSaneFlowGps);
             if (accepted) {
                 grindController.onWeightSample(rawWeight, sampleTimestampMs);
             }
