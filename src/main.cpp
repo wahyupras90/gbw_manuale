@@ -501,7 +501,10 @@ extern void saveSettingsToNVS() {
 // GrindController::forceAbort()), padahal secara visual UI masih di
 // screen Predictive Grind.
 // ------------------------------------------------------------
+static bool s_tareFailed = false;  // true kalau grind_start() terakhir ditolak karena auto-tare timeout
+
 bool grind_start(float target_g) {
+    s_tareFailed = false;
     // AUTO-TARE -- dijalankan SEKALI di sini, SEBELUM startGrind()
     // sama sekali menyentuh weightFilter_/hasSample()/computeFlowRate().
     // Alasan (disepakati dengan Wahyu setelah kalibrasi fisik HX711):
@@ -533,7 +536,12 @@ bool grind_start(float target_g) {
     // kalibrasi, sebelum sempat jadi masalah nyata).
     float activeCalibScale = hx711.currentScale();
     if (activeCalibScale != 0.0f) {
-        long freshOffset = hx711.readRawAverage(10);
+        long freshOffset = 0;
+        if (!hx711.readRawAverageSafe(10, freshOffset, 500)) {
+            Serial.println("[HX711] Auto-tare GAGAL -- HX711 tidak merespons (timeout). Grind ditolak.");
+            s_tareFailed = true;
+            return false;
+        }
         hx711.setCalibration(freshOffset, activeCalibScale);
         // WAJIB reset weightFilter SETELAH offset baru diset -- lihat
         // catatan lengkap di WeightFilter::reset() (weight_filter.h).
@@ -607,6 +615,7 @@ bool grind_start(float target_g) {
 // (permintaan eksplisit Wahyu, case sudah tertutup fisik) -- lihat
 // ui_show_grind_reject_reason() di screen_idle.cpp untuk mapping teksnya.
 AbortReason grind_last_abort_reason() {
+    if (s_tareFailed) return AbortReason::INVALID_WEIGHT;
     return grindController.abortReason();
 }
 
@@ -1183,7 +1192,11 @@ void loop() {
             // tidak butuh puluhan detik untuk "mengejar" berat cup.
             // Grinding tetap ketat (GRIND_FLOW_RATE_MAX_SANE_GPS) supaya
             // deteksi outlier flow tetap efektif selama proses grind.
-            float maxSaneFlowGps = (grindController.state() == GrindState::IDLE)
+            // IDLE/COMPLETE/ABORT = tidak ada grind aktif (state tidak
+            // pernah kembali ke IDLE setelah grind pertama).
+            GrindState gs = grindController.state();
+            bool noActiveGrind = (gs == GrindState::IDLE || gs == GrindState::COMPLETE || gs == GrindState::ABORT);
+            float maxSaneFlowGps = noActiveGrind
                                         ? GRIND_FLOW_RATE_MAX_SANE_IDLE_GPS
                                         : GRIND_FLOW_RATE_MAX_SANE_GPS;
             bool accepted = weightFilter.pushRawSample(rawWeight, sampleTimestampMs, maxSaneFlowGps);

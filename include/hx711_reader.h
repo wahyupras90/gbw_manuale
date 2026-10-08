@@ -66,6 +66,11 @@ public:
     // normal operasi karena blocking).
     long readRawAverage(uint8_t times = 10);
 
+    // Versi AMAN readRawAverage(): tiap sampel menunggu maks timeoutMs,
+    // gagal (HX711 tidak merespons) -> return false, TIDAK hang. Dipakai
+    // auto-tare di grind_start().
+    bool readRawAverageSafe(uint8_t times, long& outAvg, unsigned long timeoutMs = 500);
+
     // Getter kalibrasi aktif -- DITAMBAHKAN untuk layar Debug
     // (screen_debug.cpp), supaya operator bisa lihat offset/scale yang
     // SEDANG dipakai firmware saat ini tanpa Serial (mis. setelah

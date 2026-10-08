@@ -62,6 +62,19 @@ float HX711Reader::readWeightGrams() {
     return (raw - offset_) / scaleUnitsPerGram_;
 }
 
+bool HX711Reader::readRawAverageSafe(uint8_t times, long& outAvg, unsigned long timeoutMs) {
+    if (times == 0) return false;
+    long long sum = 0;
+    for (uint8_t i = 0; i < times; i++) {
+        if (!hx711_.wait_ready_timeout(timeoutMs)) {
+            return false;
+        }
+        sum += hx711_.read();
+    }
+    outAvg = (long)(sum / times);
+    return true;
+}
+
 long HX711Reader::readRawAverage(uint8_t times) {
     return hx711_.read_average(times);
 }

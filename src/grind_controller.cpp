@@ -365,9 +365,10 @@ void GrindController::onWeightSample(float rawWeightG, unsigned long sampleTimes
             if (currentWeight >= stopThreshold) {
                 Serial.printf("[GRIND] Early stop -- berat %.2fg >= threshold %.2fg (earlyStop=%.2fg, target=%.2fg).\n",
                               currentWeight, stopThreshold, earlyStopG_, targetAbsoluteG_);
-                saveCheckpoint("motor_stop");
-
+                // Motor dimatikan DULU, baru checkpoint (tulis NVS bisa
+                // makan puluhan ms -- jangan tunda motor stop).
                 if (!stopMotorOrAbort()) return;
+                saveCheckpoint("motor_stop");
 
                 saveCheckpoint("wait_settle");
                 transitionTo(GrindState::WAIT_SETTLE);
