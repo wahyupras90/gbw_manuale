@@ -75,6 +75,7 @@
 #include "grind_controller.h"
 #include "debug_snapshot.h"
 #include "ota_manager.h"
+#include "web_monitor.h"
 
 // ============================================================
 // UI LVGL -- WIRING GrindController <-> g_ui_state (lihat brief
@@ -951,11 +952,43 @@ static void syncGrindControllerToUi() {
 // navigasi UI yang sesuai SEKALI saja per transisi. Dipanggil TIAP
 // loop() setelah syncGrindControllerToUi().
 // ------------------------------------------------------------
+// Catat satu sesi grind selesai ke riwayat WebMonitor (RAM saja,
+// READ-ONLY, tidak menyentuh kontrol grind/NVS). Dipanggil SEKALI
+// per transisi ke COMPLETE/ABORT.
+static void recordGrindForWebMonitor(GrindState finalState) {
+    GrindRecord r = {};
+    bool completed = (finalState == GrindState::COMPLETE);
+    r.uptimeMs     = millis();
+    r.durationMs   = grindController.grindDurationMs();
+    r.targetDoseG  = grindController.targetDoseG();
+    r.startWeightG = grindController.startWeightG();
+    r.earlyStopG   = grindController.earlyStopG();
+    // lastGrind* hanya bermakna untuk grind yang selesai normal.
+    r.weightAtStopG = completed ? grindController.lastGrindWeightAtMotorStop()       : NAN;
+    r.weightAt100G  = completed ? grindController.lastGrindWeightAtMotorOff100ms()   : NAN;
+    r.weightAt300G  = completed ? grindController.lastGrindWeightAtMotorOff300ms()   : NAN;
+    r.finalWeightG  = completed ? grindController.finalWeightG()                     : NAN;
+    r.errorG        = completed ? grindController.finalErrorG()                      : NAN;
+    r.toleranceG    = grindController.accuracyToleranceG();
+    r.settleMs      = (uint16_t)min(grindController.settlingTimeMs(), 65535UL);
+    r.pulses        = (uint8_t)constrain(grindController.pulseAttempts(), 0, 255);
+    r.maxPulses     = (uint8_t)constrain(grindController.maxPulseAttempts(), 0, 255);
+    r.purgeOn       = grindController.postPurgeEnabled() ? 1 : 0;
+    r.purgeCount    = (uint8_t)constrain(grindController.postPurgePulseCount(), 0, 255);
+    r.result        = (uint8_t)grindController.result();
+    r.abortReason   = (uint8_t)grindController.abortReason();
+    web_monitor_push(r);
+}
+
 static void handleGrindStateTransitionForUi() {
     GrindState now = grindController.state();
     if (now == s_lastGrindState) {
         s_lastGrindState = now;
         return;
+    }
+
+    if (now == GrindState::COMPLETE || now == GrindState::ABORT) {
+        recordGrindForWebMonitor(now);
     }
 
     if (now == GrindState::PULSE_CORRECTION) {
@@ -1155,6 +1188,7 @@ void setup() {
     // firmware tetap lanjut normal (lihat catatan isolasi di
     // ota_manager.h).
     otaManager.begin();
+    web_monitor_begin();  // hanya reset state; server baru nyala setelah WiFi connect
 
     // UI LVGL diinit PALING TERAKHIR -- setelah semua komponen kontrol
     // grind & OTA siap. lv_port_init() HARUS dipanggil SEBELUM
@@ -1224,6 +1258,10 @@ void loop() {
                          grindController.state() == GrindState::COMPLETE ||
                          grindController.state() == GrindState::ABORT);
     otaManager.update(grindIsIdle);
+    web_monitor_update(otaManager.isWifiConnected(), grindIsIdle,
+                       grindController.currentWeightG(),
+                       grindController.currentFlowGps(),
+                       (int)grindController.state());
 
     // ------------------------------------------------------------
     // UI LVGL -- PALING TERAKHIR di loop(), setelah semua keputusan
