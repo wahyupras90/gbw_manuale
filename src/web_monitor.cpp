@@ -14,7 +14,7 @@
 #define WEB_MONITOR_NVS_NS        "gbwhist"
 #define WEB_MONITOR_NVS_KEY       "h"
 #define WEB_MONITOR_MAGIC         0x47425748UL   // "GBWH"
-#define WEB_MONITOR_BLOB_VERSION  1
+#define WEB_MONITOR_BLOB_VERSION  2   // v2: + weightAfterPurgeG (ukuran struct berubah -> blob lama diabaikan)
 
 struct HistoryBlob {
     uint32_t magic;
@@ -90,20 +90,21 @@ static void handleGrindsJson() {
         fmtFloat(b[5], 16, r.weightAt300G,  2, "null");
         fmtFloat(b[6], 16, r.finalWeightG,  2, "null");
         fmtFloat(b[7], 16, r.errorG,        2, "null");
-        char tol[16];
+        char tol[16], ap[16];
         fmtFloat(tol, sizeof(tol), r.toleranceG, 2, "null");
-        char row[420];
+        fmtFloat(ap, sizeof(ap), r.weightAfterPurgeG, 2, "null");
+        char row[480];
         snprintf(row, sizeof(row),
             "%s{\"seq\":%lu,\"boot\":%u,\"uptime_ms\":%lu,\"duration_ms\":%lu,\"result\":%u,\"abort\":%u,"
             "\"target_g\":%s,\"start_g\":%s,\"early_stop_g\":%s,\"stop_w_g\":%s,"
             "\"w100_g\":%s,\"w300_g\":%s,\"final_g\":%s,\"error_g\":%s,"
             "\"tol_g\":%s,\"settle_ms\":%u,\"pulses\":%u,\"max_pulses\":%u,"
-            "\"purge_on\":%u,\"purge_n\":%u}",
+            "\"purge_on\":%u,\"purge_n\":%u,\"after_purge_g\":%s}",
             i == 0 ? "" : ",",
             (unsigned long)r.seq, (unsigned)r.boot, (unsigned long)r.uptimeMs, (unsigned long)r.durationMs,
             r.result, r.abortReason,
             b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
-            tol, r.settleMs, r.pulses, r.maxPulses, r.purgeOn, r.purgeCount);
+            tol, r.settleMs, r.pulses, r.maxPulses, r.purgeOn, r.purgeCount, ap);
         s_server->sendContent(row);
     }
     s_server->sendContent("]");
@@ -116,7 +117,7 @@ static void handleGrindsCsv() {
     s_server->sendContent(
         "seq,boot,uptime_ms,duration_ms,result,abort,target_g,start_g,early_stop_g,"
         "stop_w_g,w100_g,w300_g,final_g,error_g,tol_g,settle_ms,pulses,max_pulses,"
-        "purge_on,purge_n\n");
+        "purge_on,purge_n,after_purge_g\n");
     uint32_t n = recordCount();
     for (uint32_t i = 0; i < n; i++) {
         const GrindRecord& r = recordAt(i);
@@ -130,13 +131,15 @@ static void handleGrindsCsv() {
         fmtFloat(b[6], 16, r.finalWeightG,  2, "");
         fmtFloat(b[7], 16, r.errorG,        2, "");
         fmtFloat(b[8], 16, r.toleranceG,    2, "");
-        char row[200];
+        char ap[16];
+        fmtFloat(ap, sizeof(ap), r.weightAfterPurgeG, 2, "");
+        char row[240];
         snprintf(row, sizeof(row),
-            "%lu,%u,%lu,%lu,%u,%u,%s,%s,%s,%s,%s,%s,%s,%s,%s,%u,%u,%u,%u,%u\n",
+            "%lu,%u,%lu,%lu,%u,%u,%s,%s,%s,%s,%s,%s,%s,%s,%s,%u,%u,%u,%u,%u,%s\n",
             (unsigned long)r.seq, (unsigned)r.boot, (unsigned long)r.uptimeMs, (unsigned long)r.durationMs,
             r.result, r.abortReason,
             b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8],
-            r.settleMs, r.pulses, r.maxPulses, r.purgeOn, r.purgeCount);
+            r.settleMs, r.pulses, r.maxPulses, r.purgeOn, r.purgeCount, ap);
         s_server->sendContent(row);
     }
     s_server->sendContent("");

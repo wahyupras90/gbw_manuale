@@ -53,7 +53,13 @@ struct GrindRecord {
     uint8_t result;          // GrindResult (0 NONE,1 SUCCESS,2 INACCURATE,3 ABORTED)
     uint8_t abortReason;     // AbortReason (0 = tidak ada)
     uint16_t boot;           // nomor boot saat sesi dicatat (uptimeMs hanya bermakna per boot)
+    float weightAfterPurgeG; // berat setelah purge, sebelum pulse pertama (NAN kalau ABORT)
 };
+
+// CATATAN penamaan kolom (jangan salah baca):
+//   weightAtStopG = berat SETELAH SETTLE penuh (settle_ms setelah relay OFF),
+//   BUKAN berat saat relay OFF -- lihat grind_controller.cpp (WAIT_SETTLE).
+//   Urutan waktu: w100 -> w300 -> weightAtStopG (settled) -> after_purge -> final.
 
 // Panggil sekali dari setup() (tidak menyalakan server, hanya reset state).
 void web_monitor_begin();

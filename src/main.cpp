@@ -967,6 +967,7 @@ static void recordGrindForWebMonitor(GrindState finalState) {
     r.weightAtStopG = completed ? grindController.lastGrindWeightAtMotorStop()       : NAN;
     r.weightAt100G  = completed ? grindController.lastGrindWeightAtMotorOff100ms()   : NAN;
     r.weightAt300G  = completed ? grindController.lastGrindWeightAtMotorOff300ms()   : NAN;
+    r.weightAfterPurgeG = completed ? grindController.lastGrindWeightAfterPurge()    : NAN;
     r.finalWeightG  = completed ? grindController.finalWeightG()                     : NAN;
     r.errorG        = completed ? grindController.finalErrorG()                      : NAN;
     r.toleranceG    = grindController.accuracyToleranceG();

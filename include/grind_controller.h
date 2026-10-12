@@ -146,6 +146,9 @@ public:
     float lastGrindWeightAtMotorStop() const { return lastGrindWeightAtMotorStop_; }
     float lastGrindWeightAtMotorOff100ms() const { return lastGrindWeightAtMotorOff100ms_; }
     float lastGrindWeightAtMotorOff300ms() const { return lastGrindWeightAtMotorOff300ms_; }
+    // Berat setelah POST_PURGE selesai (sebelum pulse koreksi pertama).
+    // Kalau purge nonaktif = sama dengan berat setelah settle.
+    float lastGrindWeightAfterPurge() const { return lastGrindWeightAfterPurge_; }
     float lastGrindEarlyStopG() const { return lastGrindEarlyStopG_; }
     float lastGrindFinalWeightG() const { return lastGrindFinalWeightG_; }
     int lastGrindPulseCount() const { return lastGrindPulseCount_; }
@@ -247,9 +250,11 @@ private:
     float weightAfterSettle_;
     float weightAtMotorOff100ms_;   // berat +100ms setelah relay OFF (in-memory, tidak persist NVS)
     float weightAtMotorOff300ms_;   // berat +300ms setelah relay OFF (in-memory, tidak persist NVS)
+    float weightAfterPurge_;        // berat saat keputusan pasca-purge (sebelum pulse pertama)
     float lastGrindWeightAtMotorStop_;
     float lastGrindWeightAtMotorOff100ms_;  // in-memory only, reset NAN saat boot
     float lastGrindWeightAtMotorOff300ms_;  // in-memory only, reset NAN saat boot
+    float lastGrindWeightAfterPurge_;       // in-memory only, reset NAN saat boot
     float lastGrindEarlyStopG_;
     float lastGrindFinalWeightG_;
     int lastGrindPulseCount_;

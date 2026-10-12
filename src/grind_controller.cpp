@@ -27,8 +27,10 @@ GrindController::GrindController(WeightFilter* weightFilter, MotorController* mo
       waitStableStartMs_(0), waitStableOkSinceMs_(0), waitStableLastWeight_(NAN),
       weightAtMotorStop_(NAN), weightAfterSettle_(NAN),
       weightAtMotorOff100ms_(NAN), weightAtMotorOff300ms_(NAN),
+      weightAfterPurge_(NAN),
       lastGrindWeightAtMotorStop_(NAN),
       lastGrindWeightAtMotorOff100ms_(NAN), lastGrindWeightAtMotorOff300ms_(NAN),
+      lastGrindWeightAfterPurge_(NAN),
       lastGrindEarlyStopG_(NAN), lastGrindFinalWeightG_(NAN), lastGrindPulseCount_(0) {}
 
 // ------------------------------------------------------------
@@ -176,6 +178,7 @@ bool GrindController::startGrind(float targetDoseG) {
     weightAfterSettle_      = NAN;
     weightAtMotorOff100ms_  = NAN;
     weightAtMotorOff300ms_  = NAN;
+    weightAfterPurge_       = NAN;
 
     Serial.printf("[GRIND] Mulai -- dose=%.2fg tare=%.2fg target=%.2fg (earlyStop=%.2fg, tolerance=%.3fg, max_pulses=%d, settle=%lums)\n",
                   targetDoseG_, startWeightG_, targetAbsoluteG_, earlyStopG_,
@@ -559,6 +562,7 @@ void GrindController::evaluatePostPurgeProgress(unsigned long sampleTimestampMs)
 void GrindController::finishPostPurgeAndDecide() {
     saveCheckpoint("purge_decide");
     float settledWeight = weightFilter_->latestWeight();
+    weightAfterPurge_ = settledWeight;  // instrumentasi saja, tidak dipakai logika kontrol
     float errorG = settledWeight - targetAbsoluteG_;
 
     Serial.printf("[GRIND] Settle selesai -- berat=%.2fg target=%.2fg error=%.3fg\n",
@@ -652,6 +656,7 @@ void GrindController::finishAsComplete() {
     lastGrindWeightAtMotorStop_ = weightAtMotorStop_;
     lastGrindWeightAtMotorOff100ms_ = weightAtMotorOff100ms_;
     lastGrindWeightAtMotorOff300ms_ = weightAtMotorOff300ms_;
+    lastGrindWeightAfterPurge_  = weightAfterPurge_;
     lastGrindEarlyStopG_        = earlyStopG_;
     lastGrindFinalWeightG_      = finalWeightG_;
     lastGrindPulseCount_        = pulseAttempts_;
