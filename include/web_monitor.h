@@ -12,8 +12,12 @@
 // BATASAN DESAIN (disengaja, sama semangat dengan ota_manager.h):
 //   - READ-ONLY. Tidak ada endpoint yang menyalakan motor / mengubah
 //     setting. Jalur kontrol grind tetap GPIO + HX711 murni.
-//   - Tidak ada filesystem / NVS. Riwayat hanya di RAM (ring buffer),
-//     hilang saat reboot. Skrip di PC yang menyimpan secara berkala.
+//   - Tidak ada filesystem. Riwayat 10 sesi terakhir disimpan sebagai
+//     SATU blob kecil (~600 B) di NVS namespace "gbwhist" -- terpisah
+//     dari namespace setting, ditulis sekali tiap grind selesai, dan
+//     dimuat ulang saat boot (tahan reboot & OTA). Blob yang tidak
+//     valid (magic/versi/ukuran beda) diabaikan, TIDAK menghapus apa
+//     pun di NVS lain.
 //   - handleClient() HANYA dipanggil saat grind tidak aktif
 //     (IDLE/COMPLETE/ABORT), sama pola dengan OtaManager.
 //   - Server baru dinyalakan SETELAH WiFi connect; kalau WiFi tidak
@@ -48,6 +52,7 @@ struct GrindRecord {
     uint8_t purgeCount;      // jumlah pulse purge
     uint8_t result;          // GrindResult (0 NONE,1 SUCCESS,2 INACCURATE,3 ABORTED)
     uint8_t abortReason;     // AbortReason (0 = tidak ada)
+    uint16_t boot;           // nomor boot saat sesi dicatat (uptimeMs hanya bermakna per boot)
 };
 
 // Panggil sekali dari setup() (tidak menyalakan server, hanya reset state).

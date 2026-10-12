@@ -1,17 +1,33 @@
 #include "web_monitor.h"
 
 #include <WiFi.h>
+#include <Preferences.h>
 #include <WebServer.h>
 #include <ESPmDNS.h>
 #include <math.h>
 #include "version.h"
 
-// Kapasitas riwayat. 100 x sizeof(GrindRecord) (~64 B) = ~6 KB RAM.
-#define WEB_MONITOR_MAX_RECORDS   100
+// Kapasitas riwayat: 10 sesi terakhir. Persisten di NVS sebagai satu
+// blob (~600 B), namespace sendiri supaya tidak menyentuh setting.
+#define WEB_MONITOR_MAX_RECORDS   10
 #define WEB_MONITOR_RETRY_MS      5000UL
+#define WEB_MONITOR_NVS_NS        "gbwhist"
+#define WEB_MONITOR_NVS_KEY       "h"
+#define WEB_MONITOR_MAGIC         0x47425748UL   // "GBWH"
+#define WEB_MONITOR_BLOB_VERSION  1
+
+struct HistoryBlob {
+    uint32_t magic;
+    uint16_t version;
+    uint16_t bootCount;      // boot terakhir yang menulis blob ini
+    uint32_t total;          // total sesi tercatat (seq berlanjut lintas boot)
+    GrindRecord recs[WEB_MONITOR_MAX_RECORDS];
+};
 
 static GrindRecord s_records[WEB_MONITOR_MAX_RECORDS];
-static uint32_t    s_total = 0;       // total sesi tercatat sejak boot
+static uint32_t    s_total = 0;       // total sesi tercatat (lintas boot)
+static uint16_t    s_boot = 1;        // nomor boot sekarang
+static bool        s_loadedFromNvs = false;
 static WebServer*  s_server = nullptr; // dibuat saat WiFi pertama connect
 static unsigned long s_lastTryMs = 0;
 static bool        s_started = false;
@@ -45,15 +61,16 @@ static void handleStatus() {
     char w[16], f[16];
     fmtFloat(w, sizeof(w), s_weightG, 2, "null");
     fmtFloat(f, sizeof(f), s_flowGps, 2, "null");
-    char out[320];
+    char out[384];
     snprintf(out, sizeof(out),
         "{\"fw\":\"%s\",\"uptime_s\":%lu,\"weight_g\":%s,\"flow_gps\":%s,"
         "\"grind_state\":%d,\"rssi\":%d,\"heap_free\":%u,\"heap_min\":%u,"
-        "\"records\":%u,\"total\":%lu}",
+        "\"records\":%u,\"total\":%lu,\"boot\":%u,\"nvs_loaded\":%d}",
         FIRMWARE_VERSION, (unsigned long)(millis() / 1000UL), w, f,
         s_grindState, (int)WiFi.RSSI(),
         (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap(),
-        (unsigned)recordCount(), (unsigned long)s_total);
+        (unsigned)recordCount(), (unsigned long)s_total,
+        (unsigned)s_boot, s_loadedFromNvs ? 1 : 0);
     s_server->send(200, "application/json", out);
 }
 
@@ -77,13 +94,13 @@ static void handleGrindsJson() {
         fmtFloat(tol, sizeof(tol), r.toleranceG, 2, "null");
         char row[420];
         snprintf(row, sizeof(row),
-            "%s{\"seq\":%lu,\"uptime_ms\":%lu,\"duration_ms\":%lu,\"result\":%u,\"abort\":%u,"
+            "%s{\"seq\":%lu,\"boot\":%u,\"uptime_ms\":%lu,\"duration_ms\":%lu,\"result\":%u,\"abort\":%u,"
             "\"target_g\":%s,\"start_g\":%s,\"early_stop_g\":%s,\"stop_w_g\":%s,"
             "\"w100_g\":%s,\"w300_g\":%s,\"final_g\":%s,\"error_g\":%s,"
             "\"tol_g\":%s,\"settle_ms\":%u,\"pulses\":%u,\"max_pulses\":%u,"
             "\"purge_on\":%u,\"purge_n\":%u}",
             i == 0 ? "" : ",",
-            (unsigned long)r.seq, (unsigned long)r.uptimeMs, (unsigned long)r.durationMs,
+            (unsigned long)r.seq, (unsigned)r.boot, (unsigned long)r.uptimeMs, (unsigned long)r.durationMs,
             r.result, r.abortReason,
             b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
             tol, r.settleMs, r.pulses, r.maxPulses, r.purgeOn, r.purgeCount);
@@ -97,7 +114,7 @@ static void handleGrindsCsv() {
     s_server->setContentLength(CONTENT_LENGTH_UNKNOWN);
     s_server->send(200, "text/csv", "");
     s_server->sendContent(
-        "seq,uptime_ms,duration_ms,result,abort,target_g,start_g,early_stop_g,"
+        "seq,boot,uptime_ms,duration_ms,result,abort,target_g,start_g,early_stop_g,"
         "stop_w_g,w100_g,w300_g,final_g,error_g,tol_g,settle_ms,pulses,max_pulses,"
         "purge_on,purge_n\n");
     uint32_t n = recordCount();
@@ -115,8 +132,8 @@ static void handleGrindsCsv() {
         fmtFloat(b[8], 16, r.toleranceG,    2, "");
         char row[200];
         snprintf(row, sizeof(row),
-            "%lu,%lu,%lu,%u,%u,%s,%s,%s,%s,%s,%s,%s,%s,%s,%u,%u,%u,%u,%u\n",
-            (unsigned long)r.seq, (unsigned long)r.uptimeMs, (unsigned long)r.durationMs,
+            "%lu,%u,%lu,%lu,%u,%u,%s,%s,%s,%s,%s,%s,%s,%s,%s,%u,%u,%u,%u,%u\n",
+            (unsigned long)r.seq, (unsigned)r.boot, (unsigned long)r.uptimeMs, (unsigned long)r.durationMs,
             r.result, r.abortReason,
             b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8],
             r.settleMs, r.pulses, r.maxPulses, r.purgeOn, r.purgeCount);
@@ -132,17 +149,70 @@ static void handleNotFound() {
 // ------------------------------------------------------------
 // Publik
 // ------------------------------------------------------------
-void web_monitor_begin() {
+// Muat riwayat dari NVS. Blob tidak valid -> diabaikan (mulai kosong),
+// TIDAK ada yang dihapus. Dipanggil sekali dari web_monitor_begin().
+static void loadHistoryFromNvs() {
     s_total = 0;
+    s_boot = 1;
+    s_loadedFromNvs = false;
+
+    Preferences p;
+    if (!p.begin(WEB_MONITOR_NVS_NS, true)) return;  // read-only; namespace belum ada -> kosong
+    size_t len = p.getBytesLength(WEB_MONITOR_NVS_KEY);
+    if (len == sizeof(HistoryBlob)) {
+        HistoryBlob* b = (HistoryBlob*)malloc(sizeof(HistoryBlob));
+        if (b != nullptr) {
+            size_t got = p.getBytes(WEB_MONITOR_NVS_KEY, b, sizeof(HistoryBlob));
+            if (got == sizeof(HistoryBlob) &&
+                b->magic == WEB_MONITOR_MAGIC &&
+                b->version == WEB_MONITOR_BLOB_VERSION) {
+                memcpy(s_records, b->recs, sizeof(s_records));
+                s_total = b->total;
+                s_boot = (uint16_t)(b->bootCount + 1);
+                s_loadedFromNvs = true;
+            }
+            free(b);
+        }
+    }
+    p.end();
+}
+
+static void saveHistoryToNvs() {
+    HistoryBlob* b = (HistoryBlob*)malloc(sizeof(HistoryBlob));
+    if (b == nullptr) return;
+    b->magic = WEB_MONITOR_MAGIC;
+    b->version = WEB_MONITOR_BLOB_VERSION;
+    b->bootCount = s_boot;
+    b->total = s_total;
+    memcpy(b->recs, s_records, sizeof(s_records));
+
+    Preferences p;
+    if (p.begin(WEB_MONITOR_NVS_NS, false)) {
+        // Gagal tulis (mis. NVS penuh) hanya dilaporkan; riwayat RAM tetap jalan.
+        size_t w = p.putBytes(WEB_MONITOR_NVS_KEY, b, sizeof(HistoryBlob));
+        if (w != sizeof(HistoryBlob)) {
+            Serial.println("[WEB] Peringatan: gagal simpan riwayat ke NVS (RAM tetap jalan).");
+        }
+        p.end();
+    }
+    free(b);
+}
+
+void web_monitor_begin() {
     s_started = false;
     s_lastTryMs = 0;
+    loadHistoryFromNvs();
+    Serial.printf("[WEB] Riwayat dimuat dari NVS: %u sesi (total %lu, boot #%u)\n",
+                  (unsigned)recordCount(), (unsigned long)s_total, (unsigned)s_boot);
 }
 
 void web_monitor_push(const GrindRecord& rec) {
     GrindRecord r = rec;
     r.seq = s_total + 1;
+    r.boot = s_boot;
     s_records[s_total % WEB_MONITOR_MAX_RECORDS] = r;
     s_total++;
+    saveHistoryToNvs();
 }
 
 static void startServerOnce() {
