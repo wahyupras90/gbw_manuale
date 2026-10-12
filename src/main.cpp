@@ -76,6 +76,7 @@
 #include "debug_snapshot.h"
 #include "ota_manager.h"
 #include "web_monitor.h"
+#include "diag_trace.h"
 
 // ============================================================
 // UI LVGL -- WIRING GrindController <-> g_ui_state (lihat brief
@@ -990,6 +991,7 @@ static void handleGrindStateTransitionForUi() {
 
     if (now == GrindState::COMPLETE || now == GrindState::ABORT) {
         recordGrindForWebMonitor(now);
+        diag_trace_finish(web_monitor_total());  // pasangkan trace dengan seq riwayat
     }
 
     if (now == GrindState::PULSE_CORRECTION) {
@@ -1237,6 +1239,9 @@ void loop() {
             bool accepted = weightFilter.pushRawSample(rawWeight, sampleTimestampMs, maxSaneFlowGps);
             if (accepted) {
                 grindController.onWeightSample(rawWeight, sampleTimestampMs);
+                // DIAGNOSTIK read-only (default OFF): salin sampel ke buffer trace.
+                diag_trace_sample(sampleTimestampMs, rawWeight, weightFilter.latestWeight(),
+                                  (int)grindController.state(), motorController.isOn());
             }
         }
     }
@@ -1259,6 +1264,7 @@ void loop() {
                          grindController.state() == GrindState::COMPLETE ||
                          grindController.state() == GrindState::ABORT);
     otaManager.update(grindIsIdle);
+    diag_trace_tick(millis());
     web_monitor_update(otaManager.isWifiConnected(), grindIsIdle,
                        grindController.currentWeightG(),
                        grindController.currentFlowGps(),

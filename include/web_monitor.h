@@ -67,6 +67,9 @@ void web_monitor_begin();
 // Dicatat main.cpp tiap sesi selesai. Aman dipanggil kapan saja.
 void web_monitor_push(const GrindRecord& rec);
 
+// Total sesi tercatat (= seq sesi terakhir).
+uint32_t web_monitor_total();
+
 // Panggil tiap loop(). wifiConnected/grindIdle dari main.cpp.
 // weightG/flowGps = nilai terkini, grindState = int(GrindState).
 void web_monitor_update(bool wifiConnected, bool grindIdle,

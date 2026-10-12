@@ -6,6 +6,7 @@
 #include <ESPmDNS.h>
 #include <math.h>
 #include "version.h"
+#include "diag_trace.h"
 
 // Kapasitas riwayat: 10 sesi terakhir. Persisten di NVS sebagai satu
 // blob (~600 B), namespace sendiri supaya tidak menyentuh setting.
@@ -61,16 +62,20 @@ static void handleStatus() {
     char w[16], f[16];
     fmtFloat(w, sizeof(w), s_weightG, 2, "null");
     fmtFloat(f, sizeof(f), s_flowGps, 2, "null");
-    char out[384];
+    char out[512];
     snprintf(out, sizeof(out),
         "{\"fw\":\"%s\",\"uptime_s\":%lu,\"weight_g\":%s,\"flow_gps\":%s,"
         "\"grind_state\":%d,\"rssi\":%d,\"heap_free\":%u,\"heap_min\":%u,"
-        "\"records\":%u,\"total\":%lu,\"boot\":%u,\"nvs_loaded\":%d}",
+        "\"records\":%u,\"total\":%lu,\"boot\":%u,\"nvs_loaded\":%d,"
+        "\"diag_on\":%d,\"diag_sessions\":%lu,\"diag_last_seq\":%lu,\"diag_last_n\":%u,\"diag_overflow\":%d}",
         FIRMWARE_VERSION, (unsigned long)(millis() / 1000UL), w, f,
         s_grindState, (int)WiFi.RSSI(),
         (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap(),
         (unsigned)recordCount(), (unsigned long)s_total,
-        (unsigned)s_boot, s_loadedFromNvs ? 1 : 0);
+        (unsigned)s_boot, s_loadedFromNvs ? 1 : 0,
+        diag_trace_enabled() ? 1 : 0, (unsigned long)diag_trace_sessions(),
+        (unsigned long)diag_trace_last_seq(), (unsigned)diag_trace_last_count(),
+        diag_trace_last_overflow() ? 1 : 0);
     s_server->send(200, "application/json", out);
 }
 
@@ -145,8 +150,61 @@ static void handleGrindsCsv() {
     s_server->sendContent("");
 }
 
+static void handleDiag() {
+    // Tidak menyentuh kontrol grind: hanya menyalakan/mematikan perekaman trace.
+    if (!s_server->hasArg("on")) {
+        char o[96];
+        snprintf(o, sizeof(o), "{\"diag_on\":%d,\"heap_free\":%u}",
+                 diag_trace_enabled() ? 1 : 0, (unsigned)ESP.getFreeHeap());
+        s_server->send(200, "application/json", o);
+        return;
+    }
+    bool want = (s_server->arg("on") == "1");
+    const char* msg = "";
+    bool ok = diag_trace_set(want, &msg);
+    char o[160];
+    snprintf(o, sizeof(o), "{\"ok\":%d,\"diag_on\":%d,\"msg\":\"%s\",\"heap_free\":%u}",
+             ok ? 1 : 0, diag_trace_enabled() ? 1 : 0, msg, (unsigned)ESP.getFreeHeap());
+    s_server->send(ok ? 200 : 507, "application/json", o);
+}
+
+static void handleTraceCsv() {
+    const TraceSample* t = diag_trace_last();
+    uint16_t n = diag_trace_last_count();
+    s_server->setContentLength(CONTENT_LENGTH_UNKNOWN);
+    s_server->send(200, "text/csv", "");
+    s_server->sendContent("seq,t_ms,raw_g,filt_g,state,motor\n");
+    if (t == nullptr || n == 0) {
+        s_server->sendContent("");
+        return;
+    }
+    uint32_t seq = diag_trace_last_seq();
+    char chunk[1100];
+    size_t used = 0;
+    for (uint16_t i = 0; i < n; i++) {
+        char row[64];
+        int len = snprintf(row, sizeof(row), "%lu,%lu,%.2f,%.2f,%u,%u\n",
+                           (unsigned long)seq, (unsigned long)traceMetaTime(t[i].meta),
+                           t[i].rawG, t[i].filtG,
+                           traceMetaState(t[i].meta), traceMetaMotor(t[i].meta));
+        if (len < 0 || len >= (int)sizeof(row)) continue;
+        if (used + (size_t)len >= sizeof(chunk)) {
+            chunk[used] = 0;
+            s_server->sendContent(chunk);
+            used = 0;
+        }
+        memcpy(chunk + used, row, (size_t)len);
+        used += (size_t)len;
+    }
+    if (used > 0) {
+        chunk[used] = 0;
+        s_server->sendContent(chunk);
+    }
+    s_server->sendContent("");
+}
+
 static void handleNotFound() {
-    s_server->send(404, "text/plain", "Endpoint: /status /grinds /grinds.csv");
+    s_server->send(404, "text/plain", "Endpoint: /status /grinds /grinds.csv /diag /trace.csv");
 }
 
 // ------------------------------------------------------------
@@ -209,6 +267,8 @@ void web_monitor_begin() {
                   (unsigned)recordCount(), (unsigned long)s_total, (unsigned)s_boot);
 }
 
+uint32_t web_monitor_total() { return s_total; }
+
 void web_monitor_push(const GrindRecord& rec) {
     GrindRecord r = rec;
     r.seq = s_total + 1;
@@ -224,6 +284,8 @@ static void startServerOnce() {
     s_server->on("/status", HTTP_GET, handleStatus);
     s_server->on("/grinds", HTTP_GET, handleGrindsJson);
     s_server->on("/grinds.csv", HTTP_GET, handleGrindsCsv);
+    s_server->on("/diag", HTTP_GET, handleDiag);
+    s_server->on("/trace.csv", HTTP_GET, handleTraceCsv);
     s_server->onNotFound(handleNotFound);
     s_server->begin();
     if (MDNS.begin("gbw")) {
