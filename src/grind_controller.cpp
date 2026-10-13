@@ -568,7 +568,7 @@ void GrindController::finishPostPurgeAndDecide() {
     Serial.printf("[GRIND] Settle selesai -- berat=%.2fg target=%.2fg error=%.3fg\n",
                   settledWeight, targetAbsoluteG_, errorG);
 
-    if (fabsf(errorG) <= accuracyToleranceG_) {
+    if (errorWithinBand(errorG)) {
         finalWeightG_ = settledWeight;
         saveCheckpoint("purge_done_ok");
         finishAsComplete();
@@ -617,7 +617,7 @@ void GrindController::evaluatePulseProgress(unsigned long sampleTimestampMs) {
     Serial.printf("[GRIND] Evaluasi pasca-pulse #%d -- berat=%.2fg target=%.2fg error=%.3fg\n",
                   pulseAttempts_, currentWeight, targetAbsoluteG_, errorG);
 
-    if (fabsf(errorG) <= accuracyToleranceG_) {
+    if (errorWithinBand(errorG)) {
         finalWeightG_ = currentWeight;
         finishAsComplete();
         return;
@@ -640,7 +640,7 @@ void GrindController::finishAsComplete() {
     }
 
     float errorG = finalErrorG();
-    if (fabsf(errorG) <= accuracyToleranceG_) {
+    if (errorWithinBand(errorG)) {
         result_ = GrindResult::SUCCESS;
         saveCheckpoint("done_success");
     } else {

@@ -41,7 +41,7 @@ enum class GrindState {
 
 enum class GrindResult {
     NONE,           // belum selesai / tidak relevan
-    SUCCESS,        // dalam toleransi GRIND_ACCURACY_TOLERANCE_G
+    SUCCESS,        // dalam pita [-under, +toleransi] (lihat errorWithinBand)
     INACCURATE,     // pulse attempts habis, masih di luar toleransi -- tapi AMAN
     ABORTED         // lihat abortReason() untuk detail
 };
@@ -135,6 +135,14 @@ public:
     // di-snapshot) -- dipakai UI Settings untuk menampilkan nilai yang
     // benar-benar aktif, bukan sekadar apa yang baru diketik operator.
     float accuracyToleranceG() const { return accuracyToleranceG_; }
+    // Batas bawah pita sukses (lihat GRIND_TOLERANCE_UNDER_G di config.h).
+    float accuracyToleranceUnderG() const {
+        return accuracyToleranceG_ < GRIND_TOLERANCE_UNDER_G ? accuracyToleranceG_ : GRIND_TOLERANCE_UNDER_G;
+    }
+    // errorG = berat - target. Sukses bila -under <= errorG <= +toleransi.
+    bool errorWithinBand(float errorG) const {
+        return errorG >= -accuracyToleranceUnderG() && errorG <= accuracyToleranceG_;
+    }
     int maxPulseAttempts() const { return maxPulseAttempts_; }
     unsigned long settlingTimeMs() const { return settlingTimeMs_; }
     bool postPurgeEnabled() const { return postPurgeEnabled_; }

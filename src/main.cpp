@@ -972,6 +972,7 @@ static void recordGrindForWebMonitor(GrindState finalState) {
     r.finalWeightG  = completed ? grindController.finalWeightG()                     : NAN;
     r.errorG        = completed ? grindController.finalErrorG()                      : NAN;
     r.toleranceG    = grindController.accuracyToleranceG();
+    r.tolUnderG     = grindController.accuracyToleranceUnderG();
     r.settleMs      = (uint16_t)min(grindController.settlingTimeMs(), 65535UL);
     r.pulses        = (uint8_t)constrain(grindController.pulseAttempts(), 0, 255);
     r.maxPulses     = (uint8_t)constrain(grindController.maxPulseAttempts(), 0, 255);

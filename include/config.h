@@ -228,6 +228,15 @@ static const float HX711_CALIBRATION_SCALE_CORRECTED = HX711_CALIBRATION_SCALE_F
 // minimum berdasarkan keterbatasan fisik load cell YZC-131 (non-
 // linearity+repeatability datasheet ~0.3-0.5g F.S. worst case).
 #define GRIND_ACCURACY_TOLERANCE_G           0.1f
+
+// PITA SUKSES ASIMETRIS (v1.0.63): lebih baik kelebihan daripada kekurangan.
+//   batas ATAS  = toleransi di Settings (accuracyToleranceG_)
+//   batas BAWAH = min(toleransi Settings, GRIND_TOLERANCE_UNDER_G)
+// Contoh dengan Settings 0.10 g dan nilai di bawah 0.03 g:
+//   sukses bila final - target berada di [-0.03, +0.10] g.
+// Kurang dari batas bawah -> pulse koreksi; lebih dari batas atas ->
+// INACCURATE (tidak ada koreksi untuk kelebihan, perilaku lama).
+#define GRIND_TOLERANCE_UNDER_G              0.03f
 #define GRIND_MAX_PULSE_ATTEMPTS             10
 #define GRIND_FLOW_DETECTION_THRESHOLD_GPS   0.5f
 #define GRIND_FLOW_RATE_MIN_SANE_GPS         1.0f

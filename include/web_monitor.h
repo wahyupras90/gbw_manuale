@@ -54,6 +54,7 @@ struct GrindRecord {
     uint8_t abortReason;     // AbortReason (0 = tidak ada)
     uint16_t boot;           // nomor boot saat sesi dicatat (uptimeMs hanya bermakna per boot)
     float weightAfterPurgeG; // berat setelah purge, sebelum pulse pertama (NAN kalau ABORT)
+    float tolUnderG;         // batas bawah pita sukses yang dipakai (g)
 };
 
 // CATATAN penamaan kolom (jangan salah baca):
