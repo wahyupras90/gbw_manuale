@@ -240,6 +240,7 @@ static bool isNvsCheckpoint(const char* label) {
     if (strncmp(label, "done_success",   12) == 0) return true;
     if (strncmp(label, "done_inaccurate",15) == 0) return true;
     if (strncmp(label, "abort_r",         7) == 0) return true;
+    if (strncmp(label, "cmp_",           4) == 0) return true;  // jalur penyelesaian (diagnosa hang)
     return false;
 }
 
@@ -991,8 +992,13 @@ static void handleGrindStateTransitionForUi() {
     }
 
     if (now == GrindState::COMPLETE || now == GrindState::ABORT) {
+        // Checkpoint "cmp_*" (NVS) menandai kemajuan jalur penyelesaian: kalau layar hang,
+        // layar Debug / `last_cp` di /status menunjukkan langkah terakhir yang selesai.
+        saveCheckpoint("cmp_start");
         recordGrindForWebMonitor(now);
+        saveCheckpoint("cmp_rec");
         diag_trace_finish(web_monitor_total());  // pasangkan trace dengan seq riwayat
+        saveCheckpoint("cmp_diag");
     }
 
     if (now == GrindState::PULSE_CORRECTION) {
@@ -1011,6 +1017,7 @@ static void handleGrindStateTransitionForUi() {
             // Sinkron ke UIState untuk tampil di Done screen (COAST G)
 
         }
+        saveCheckpoint("cmp_prefs");
         // FIX BUG (ditemukan lewat testing sistematis, dilaporkan
         // sebagai "pencet Start langsung lompat ke Finish Grind" saat
         // HX711 belum tersambung): GUARD BARU -- cuma navigasi ke Done
@@ -1026,7 +1033,9 @@ static void handleGrindStateTransitionForUi() {
         // dan tetap asal navigasi KELUAR ke Done).
         ui_screen_id_t current = ui_get_current_screen();
         if (current == UI_SCREEN_PREDICTIVE_GRIND || current == UI_SCREEN_PULSE_CORRECTION) {
+            saveCheckpoint("cmp_ui_begin");
             ui_transition_to_done();
+            saveCheckpoint("cmp_ui_end");
         }
         // Kalau current BUKAN salah satu dari itu (mis. masih Idle/Set
         // Target karena grind ditolak sebelum sempat mulai), TIDAK
@@ -1193,6 +1202,16 @@ void setup() {
     // ota_manager.h).
     otaManager.begin();
     web_monitor_begin();  // hanya reset state; server baru nyala setelah WiFi connect
+    {
+        // Info boot untuk /status: reset reason + checkpoint NVS terakhir dari boot sebelumnya.
+        Preferences bp;
+        String lastCp = "";
+        if (bp.begin("gbwdiag", true)) {
+            lastCp = bp.getString("last_cp", "");
+            bp.end();
+        }
+        web_monitor_set_boot_info(s_resetReasonStr, lastCp.c_str());
+    }
 
     // UI LVGL diinit PALING TERAKHIR -- setelah semua komponen kontrol
     // grind & OTA siap. lv_port_init() HARUS dipanggil SEBELUM

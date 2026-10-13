@@ -33,6 +33,12 @@ static WebServer*  s_server = nullptr; // dibuat saat WiFi pertama connect
 static unsigned long s_lastTryMs = 0;
 static bool        s_started = false;
 
+static char   s_resetReason[32] = "";
+static char   s_lastCp[32] = "";
+static bool   s_wasIdle = false;
+static unsigned long s_idleSinceMs = 0;
+#define WEB_MONITOR_IDLE_GRACE_MS 1500UL   // beri UI waktu pindah layar setelah grind selesai
+
 static float  s_weightG = NAN;
 static float  s_flowGps = NAN;
 static int    s_grindState = 0;
@@ -62,12 +68,13 @@ static void handleStatus() {
     char w[16], f[16];
     fmtFloat(w, sizeof(w), s_weightG, 2, "null");
     fmtFloat(f, sizeof(f), s_flowGps, 2, "null");
-    char out[512];
+    char out[640];
     snprintf(out, sizeof(out),
         "{\"fw\":\"%s\",\"uptime_s\":%lu,\"weight_g\":%s,\"flow_gps\":%s,"
         "\"grind_state\":%d,\"rssi\":%d,\"heap_free\":%u,\"heap_min\":%u,"
         "\"records\":%u,\"total\":%lu,\"boot\":%u,\"nvs_loaded\":%d,"
-        "\"diag_on\":%d,\"diag_sessions\":%lu,\"diag_last_seq\":%lu,\"diag_last_n\":%u,\"diag_overflow\":%d}",
+        "\"diag_on\":%d,\"diag_sessions\":%lu,\"diag_last_seq\":%lu,\"diag_last_n\":%u,\"diag_overflow\":%d,"
+        "\"reset\":\"%s\",\"last_cp\":\"%s\"}",
         FIRMWARE_VERSION, (unsigned long)(millis() / 1000UL), w, f,
         s_grindState, (int)WiFi.RSSI(),
         (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap(),
@@ -75,7 +82,8 @@ static void handleStatus() {
         (unsigned)s_boot, s_loadedFromNvs ? 1 : 0,
         diag_trace_enabled() ? 1 : 0, (unsigned long)diag_trace_sessions(),
         (unsigned long)diag_trace_last_seq(), (unsigned)diag_trace_last_count(),
-        diag_trace_last_overflow() ? 1 : 0);
+        diag_trace_last_overflow() ? 1 : 0,
+        s_resetReason, s_lastCp);
     s_server->send(200, "application/json", out);
 }
 
@@ -271,6 +279,14 @@ void web_monitor_begin() {
 
 uint32_t web_monitor_total() { return s_total; }
 
+void web_monitor_set_boot_info(const char* resetReason, const char* lastCheckpoint) {
+    snprintf(s_resetReason, sizeof(s_resetReason), "%s", resetReason ? resetReason : "");
+    snprintf(s_lastCp, sizeof(s_lastCp), "%s", lastCheckpoint ? lastCheckpoint : "");
+    // jaga JSON tetap valid: buang tanda kutip dan backslash
+    for (char* p = s_resetReason; *p; ++p) if (*p == '"' || *p == '\\') *p = '_';
+    for (char* p = s_lastCp; *p; ++p) if (*p == '"' || *p == '\\') *p = '_';
+}
+
 void web_monitor_push(const GrindRecord& rec) {
     GrindRecord r = rec;
     r.seq = s_total + 1;
@@ -315,8 +331,18 @@ void web_monitor_update(bool wifiConnected, bool grindIdle,
         return;
     }
 
-    // Layani request HANYA saat tidak ada grind aktif.
-    if (grindIdle && s_server != nullptr) {
+    // Layani request HANYA saat tidak ada grind aktif, dan setelah masa tenang
+    // singkat sejak grind selesai (supaya antrean koneksi tidak berebut waktu
+    // dengan perpindahan layar/penulisan NVS di loop yang sama).
+    if (grindIdle) {
+        if (!s_wasIdle) {
+            s_wasIdle = true;
+            s_idleSinceMs = millis();
+        }
+    } else {
+        s_wasIdle = false;
+    }
+    if (grindIdle && s_server != nullptr && (millis() - s_idleSinceMs) >= WEB_MONITOR_IDLE_GRACE_MS) {
         s_server->handleClient();
     }
 }

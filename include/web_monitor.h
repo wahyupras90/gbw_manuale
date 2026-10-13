@@ -71,6 +71,9 @@ void web_monitor_push(const GrindRecord& rec);
 // Total sesi tercatat (= seq sesi terakhir).
 uint32_t web_monitor_total();
 
+// Info boot untuk /status: reset reason dan checkpoint NVS terakhir (sebelum boot ini).
+void web_monitor_set_boot_info(const char* resetReason, const char* lastCheckpoint);
+
 // Panggil tiap loop(). wifiConnected/grindIdle dari main.cpp.
 // weightG/flowGps = nilai terkini, grindState = int(GrindState).
 void web_monitor_update(bool wifiConnected, bool grindIdle,
