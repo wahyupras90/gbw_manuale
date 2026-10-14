@@ -29,7 +29,7 @@
    MEMORY SETTINGS
  *====================*/
 #define LV_MEM_CUSTOM 0
-#define LV_MEM_SIZE (96U * 1024U)   /* v2.2: 48->96KB. Layar dibuat lazy (11 screen); 48KB habis -> assert malloc -> hang di layar Done */
+#define LV_MEM_SIZE (72U * 1024U)   /* v2.3: 48->72KB (v2.2 96KB membuat heap sistem 167KB < syarat diag 172KB). Terukur: semua layar dibuat = ~34KB terpakai. Layar dibuat lazy (11 screen); 48KB habis -> assert malloc -> hang di layar Done */
 
 /* v2.2: assert LVGL tidak lagi `while(1)` (hang beku tanpa reboot). Catat checkpoint
    "lvgl_assert" ke NVS lalu restart -- didefinisikan di main.cpp. */
