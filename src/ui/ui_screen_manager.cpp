@@ -58,7 +58,11 @@ ui_shared_state_t g_ui_state = {
 static ui_screen_id_t s_current_screen = UI_SCREEN_IDLE;
 static ui_screen_id_t s_screen_before_settings = UI_SCREEN_IDLE;  // untuk tombol back di Settings
 
-static lv_obj_t* s_screens[10] = {nullptr};  // dinaikkan 9->10 -- UI_SCREEN_GRIND_PARAMS ditambahkan
+// FIX panic masuk Grind Parameters: array 10 elemen, tapi UI_SCREEN_GRIND_PARAMS = 10
+// (enum 0..10 = 11 id) -> s_screens[10] tertulis di luar batas. Ukuran kini ikut enum
+// + static_assert supaya screen baru berikutnya gagal compile, bukan crash.
+static lv_obj_t* s_screens[UI_SCREEN_GRIND_PARAMS + 1] = {nullptr};
+static_assert(UI_SCREEN_GRIND_PARAMS == 10, "enum ui_screen_id_t berubah -- pastikan GRIND_PARAMS masih id terakhir");
 
 // ------------------------------------------------------------
 // GETTER BARU -- dipakai main.cpp (handleGrindStateTransitionForUi())
