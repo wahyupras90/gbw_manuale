@@ -241,6 +241,9 @@ static bool isNvsCheckpoint(const char* label) {
     if (strncmp(label, "done_inaccurate",15) == 0) return true;
     if (strncmp(label, "abort_r",         7) == 0) return true;
     if (strncmp(label, "cmp_",           4) == 0) return true;  // jalur penyelesaian (diagnosa hang)
+    if (strncmp(label, "pulse_motor_on", 14) == 0) return true;  // v2.2: fase fine tuning (hanya 2 titik, hemat flash)
+    if (strncmp(label, "pulse_eval",     10) == 0) return true;
+    if (strncmp(label, "lvgl_assert",    11) == 0) return true;  // v2.2: assert LVGL (heap/NULL)
     return false;
 }
 
@@ -259,6 +262,15 @@ void saveCheckpoint(const char* label) {
         diagPrefs.putULong("last_cp_ms", nowMs);
         diagPrefs.end();
     }
+}
+
+// v2.2 -- dipanggil LV_ASSERT_HANDLER (lv_conf.h). Sebelumnya `while(1)` = alat beku
+// tanpa jejak. Sekarang: catat ke NVS (dibaca lewat /status `last_cp`), motor dipastikan
+// tidak dipegang oleh LVGL, lalu restart.
+extern "C" void lvgl_assert_fail(void) {
+    saveCheckpoint("lvgl_assert");
+    delay(50);
+    esp_restart();
 }
 
 

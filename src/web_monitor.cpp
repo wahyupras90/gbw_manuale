@@ -7,6 +7,7 @@
 #include <math.h>
 #include "version.h"
 #include "diag_trace.h"
+#include <lvgl.h>   // v2.2: lv_mem_monitor() untuk /status
 
 // Kapasitas riwayat: 10 sesi terakhir. Persisten di NVS sebagai satu
 // blob (~600 B), namespace sendiri supaya tidak menyentuh setting.
@@ -68,13 +69,16 @@ static void handleStatus() {
     char w[16], f[16];
     fmtFloat(w, sizeof(w), s_weightG, 2, "null");
     fmtFloat(f, sizeof(f), s_flowGps, 2, "null");
-    char out[640];
+    lv_mem_monitor_t lvm;
+    lv_mem_monitor(&lvm);   // v2.2: heap internal LVGL (LV_MEM_SIZE) -- bukti/bantahan dugaan heap habis
+    char out[768];
     snprintf(out, sizeof(out),
         "{\"fw\":\"%s\",\"uptime_s\":%lu,\"weight_g\":%s,\"flow_gps\":%s,"
         "\"grind_state\":%d,\"rssi\":%d,\"heap_free\":%u,\"heap_min\":%u,"
         "\"records\":%u,\"total\":%lu,\"boot\":%u,\"nvs_loaded\":%d,"
         "\"diag_on\":%d,\"diag_sessions\":%lu,\"diag_last_seq\":%lu,\"diag_last_n\":%u,\"diag_overflow\":%d,"
-        "\"reset\":\"%s\",\"last_cp\":\"%s\"}",
+        "\"reset\":\"%s\",\"last_cp\":\"%s\","
+        "\"lv_total\":%u,\"lv_free\":%u,\"lv_biggest\":%u,\"lv_used_pct\":%u}",
         FIRMWARE_VERSION, (unsigned long)(millis() / 1000UL), w, f,
         s_grindState, (int)WiFi.RSSI(),
         (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap(),
@@ -83,7 +87,9 @@ static void handleStatus() {
         diag_trace_enabled() ? 1 : 0, (unsigned long)diag_trace_sessions(),
         (unsigned long)diag_trace_last_seq(), (unsigned)diag_trace_last_count(),
         diag_trace_last_overflow() ? 1 : 0,
-        s_resetReason, s_lastCp);
+        s_resetReason, s_lastCp,
+        (unsigned)lvm.total_size, (unsigned)lvm.free_size,
+        (unsigned)lvm.free_biggest_size, (unsigned)lvm.used_pct);
     s_server->send(200, "application/json", out);
 }
 

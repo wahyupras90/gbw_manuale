@@ -29,7 +29,12 @@
    MEMORY SETTINGS
  *====================*/
 #define LV_MEM_CUSTOM 0
-#define LV_MEM_SIZE (48U * 1024U)   /* 48KB heap internal LVGL -- cukup untuk 6 screen sederhana, longgarkan kalau habis */
+#define LV_MEM_SIZE (96U * 1024U)   /* v2.2: 48->96KB. Layar dibuat lazy (11 screen); 48KB habis -> assert malloc -> hang di layar Done */
+
+/* v2.2: assert LVGL tidak lagi `while(1)` (hang beku tanpa reboot). Catat checkpoint
+   "lvgl_assert" ke NVS lalu restart -- didefinisikan di main.cpp. */
+#define LV_ASSERT_HANDLER_INCLUDE "lvgl_assert.h"
+#define LV_ASSERT_HANDLER lvgl_assert_fail();
 
 /*====================
    HAL SETTINGS
