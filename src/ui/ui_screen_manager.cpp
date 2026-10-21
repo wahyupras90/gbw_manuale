@@ -26,6 +26,7 @@ extern void ui_screen_idle_update(void);
 extern void ui_screen_predictive_grind_update(void);
 extern void ui_screen_pulse_correction_update(void);
 extern void ui_screen_done_update(void);
+extern void ui_screen_done_snapshot(void);
 
 // Debug cepat alasan tolak grind (tanpa Serial) -- lihat screen_idle.cpp
 extern void ui_show_grind_reject_reason(AbortReason reason);
@@ -327,7 +328,8 @@ void ui_transition_to_done(void) {
     // ada dari grind pertama -- itu sebabnya bug ini gampang lolos
     // review kalau cuma dites lebih dari sekali).
     navigate_to(UI_SCREEN_DONE);
-    ui_screen_done_update();  // isi nilai final SETELAH screen (dan widget-nya) pasti sudah ada
+    ui_screen_done_snapshot();  // bekukan nilai final SETELAH screen (dan widget-nya) pasti sudah ada
+    ui_screen_done_update();
 }
 
 // ============================================================

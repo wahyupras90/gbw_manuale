@@ -149,9 +149,9 @@ lv_obj_t* ui_screen_done_create(void) {
     return s_screen;
 }
 
-// Dipanggil sekali saat masuk ke screen Done (bukan tiap loop, karena
-// grind sudah selesai dan nilai-nilai final tidak berubah lagi).
-void ui_screen_done_update(void) {
+// Dipanggil sekali saat masuk ke screen Done: nilai final dibekukan di sini
+// (berat, flow, pulses, duration, arc, pill). Baris +/- diurus ui_screen_done_update().
+void ui_screen_done_snapshot(void) {
     if (s_weight_label == nullptr) return;
 
     char buf[24];
@@ -167,10 +167,6 @@ void ui_screen_done_update(void) {
 
     float error = g_ui_state.current_weight_g - g_ui_state.target_absolute_g;
     bool within_tolerance = fabsf(error) <= g_ui_state.accuracy_tolerance_g;
-
-    snprintf(buf, sizeof(buf), "+/-%.2fg %s", fabsf(error), within_tolerance ? "OK" : "OUT");  // KOREKSI: '±' (U+00B1) kotak kosong di hardware fisik
-    lv_label_set_text(s_status_sublabel, buf);
-    lv_obj_set_style_text_color(s_status_sublabel, within_tolerance ? COLOR_SUCCESS : COLOR_WARN, 0);
 
     lv_obj_set_style_arc_color(s_arc, within_tolerance ? COLOR_SUCCESS : COLOR_WARN, LV_PART_INDICATOR);
     ui_set_phase_label(s_phase_pill,
@@ -190,5 +186,17 @@ void ui_screen_done_update(void) {
 
     snprintf(buf, sizeof(buf), "%.1fs", g_ui_state.grind_duration_ms / 1000.0f);
     lv_label_set_text(lv_obj_get_child(s_duration_stat, 0), buf);
+}
 
+// Dipanggil tiap tick selama layar Done: hanya baris +/- yang hidup.
+void ui_screen_done_update(void) {
+    if (s_status_sublabel == nullptr) return;
+
+    char buf[24];
+    float error = g_ui_state.current_weight_g - g_ui_state.target_absolute_g;
+    bool within_tolerance = fabsf(error) <= g_ui_state.accuracy_tolerance_g;
+
+    snprintf(buf, sizeof(buf), "+/-%.2fg %s", fabsf(error), within_tolerance ? "OK" : "OUT");  // KOREKSI: '±' (U+00B1) kotak kosong di hardware fisik
+    lv_label_set_text(s_status_sublabel, buf);
+    lv_obj_set_style_text_color(s_status_sublabel, within_tolerance ? COLOR_SUCCESS : COLOR_WARN, 0);
 }
